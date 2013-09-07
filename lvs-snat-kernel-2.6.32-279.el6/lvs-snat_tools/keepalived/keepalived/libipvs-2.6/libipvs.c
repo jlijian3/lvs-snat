@@ -1822,6 +1822,7 @@ const char *ipvs_strerror(int err)
 		{ ipvs_add_laddr, EEXIST, "Local address already exists" },
     { ipvs_add_laddr_zone, ESRCH, "Service not defined" },
 		{ ipvs_add_laddr_zone, EEXIST, "Local address already exists" },
+    { ipvs_add_laddr_zone, ESRCH, "Zone not defined" },
 		{ ipvs_del_laddr, ESRCH, "Zone not defined" },
 		{ ipvs_del_laddr, ENOENT, "No such Local address" },
     { ipvs_del_laddr_zone, ESRCH, "Zone not defined" },

@@ -1,5 +1,5 @@
-diff -ruNp linux-2.6.32-279.el6/include/linux/ip_vs.h linux-2.6.32-279.el6.dsnat/include/linux/ip_vs.h
---- linux-2.6.32-279.el6/include/linux/ip_vs.h	2012-06-13 17:40:35.000000000 -0400
+diff -ruNp linux-2.6.32-279.el6.x86_64/include/linux/ip_vs.h linux-2.6.32-279.el6.dsnat/include/linux/ip_vs.h
+--- linux-2.6.32-279.el6.x86_64/include/linux/ip_vs.h	2012-06-13 17:40:35.000000000 -0400
 +++ linux-2.6.32-279.el6.dsnat/include/linux/ip_vs.h	2013-09-06 14:47:58.766039876 -0400
 @@ -1,6 +1,10 @@
  /*
@@ -281,8 +281,8 @@ diff -ruNp linux-2.6.32-279.el6/include/linux/ip_vs.h linux-2.6.32-279.el6.dsnat
   * Attributes describing a sync daemon
   *
   * Used inside nested attribute IPVS_CMD_ATTR_DAEMON
-diff -ruNp linux-2.6.32-279.el6/include/net/ip_vs.h linux-2.6.32-279.el6.dsnat/include/net/ip_vs.h
---- linux-2.6.32-279.el6/include/net/ip_vs.h	2012-06-13 17:41:10.000000000 -0400
+diff -ruNp linux-2.6.32-279.el6.x86_64/include/net/ip_vs.h linux-2.6.32-279.el6.dsnat/include/net/ip_vs.h
+--- linux-2.6.32-279.el6.x86_64/include/net/ip_vs.h	2012-06-13 17:41:10.000000000 -0400
 +++ linux-2.6.32-279.el6.dsnat/include/net/ip_vs.h	2013-09-06 14:43:17.663128788 -0400
 @@ -69,6 +69,7 @@ static inline int ip_vs_addr_equal(int a
  				   const union nf_inet_addr *b)
@@ -841,8 +841,8 @@ diff -ruNp linux-2.6.32-279.el6/include/net/ip_vs.h linux-2.6.32-279.el6.dsnat/i
  extern __sum16 ip_vs_checksum_complete(struct sk_buff *skb, int offset);
  
  static inline __wsum ip_vs_check_diff4(__be32 old, __be32 new, __wsum oldsum)
-diff -ruNp linux-2.6.32-279.el6/include/net/ip_vs_synproxy.h linux-2.6.32-279.el6.dsnat/include/net/ip_vs_synproxy.h
---- linux-2.6.32-279.el6/include/net/ip_vs_synproxy.h	1969-12-31 19:00:00.000000000 -0500
+diff -ruNp linux-2.6.32-279.el6.x86_64/include/net/ip_vs_synproxy.h linux-2.6.32-279.el6.dsnat/include/net/ip_vs_synproxy.h
+--- linux-2.6.32-279.el6.x86_64/include/net/ip_vs_synproxy.h	1969-12-31 19:00:00.000000000 -0500
 +++ linux-2.6.32-279.el6.dsnat/include/net/ip_vs_synproxy.h	2013-09-06 14:43:17.665063615 -0400
 @@ -0,0 +1,135 @@
 +/*
@@ -980,8 +980,8 @@ diff -ruNp linux-2.6.32-279.el6/include/net/ip_vs_synproxy.h linux-2.6.32-279.el
 +extern int sysctl_ip_vs_synproxy_conn_reuse_la;
 +
 +#endif
-diff -ruNp linux-2.6.32-279.el6/net/core/secure_seq.c linux-2.6.32-279.el6.dsnat/net/core/secure_seq.c
---- linux-2.6.32-279.el6/net/core/secure_seq.c	2012-06-13 17:41:06.000000000 -0400
+diff -ruNp linux-2.6.32-279.el6.x86_64/net/core/secure_seq.c linux-2.6.32-279.el6.dsnat/net/core/secure_seq.c
+--- linux-2.6.32-279.el6.x86_64/net/core/secure_seq.c	2012-06-13 17:41:06.000000000 -0400
 +++ linux-2.6.32-279.el6.dsnat/net/core/secure_seq.c	2013-09-06 14:43:17.665063615 -0400
 @@ -105,6 +105,7 @@ __u32 secure_tcp_sequence_number(__be32 
  
@@ -991,8 +991,8 @@ diff -ruNp linux-2.6.32-279.el6/net/core/secure_seq.c linux-2.6.32-279.el6.dsnat
  
  u32 secure_ipv4_port_ephemeral(__be32 saddr, __be32 daddr, __be16 dport)
  {
-diff -ruNp linux-2.6.32-279.el6/net/ipv4/syncookies.c linux-2.6.32-279.el6.dsnat/net/ipv4/syncookies.c
---- linux-2.6.32-279.el6/net/ipv4/syncookies.c	2012-06-13 17:41:10.000000000 -0400
+diff -ruNp linux-2.6.32-279.el6.x86_64/net/ipv4/syncookies.c linux-2.6.32-279.el6.dsnat/net/ipv4/syncookies.c
+--- linux-2.6.32-279.el6.x86_64/net/ipv4/syncookies.c	2012-06-13 17:41:10.000000000 -0400
 +++ linux-2.6.32-279.el6.dsnat/net/ipv4/syncookies.c	2013-09-06 14:43:17.668146218 -0400
 @@ -8,6 +8,12 @@
   *      modify it under the terms of the GNU General Public License
@@ -1105,8 +1105,8 @@ diff -ruNp linux-2.6.32-279.el6/net/ipv4/syncookies.c linux-2.6.32-279.el6.dsnat
 +out:   return ret;
 +}
 +EXPORT_SYMBOL(ip_vs_synproxy_v4_cookie_check);
-diff -ruNp linux-2.6.32-279.el6/net/ipv4/syncookies.c.orig linux-2.6.32-279.el6.dsnat/net/ipv4/syncookies.c.orig
---- linux-2.6.32-279.el6/net/ipv4/syncookies.c.orig	1969-12-31 19:00:00.000000000 -0500
+diff -ruNp linux-2.6.32-279.el6.x86_64/net/ipv4/syncookies.c.orig linux-2.6.32-279.el6.dsnat/net/ipv4/syncookies.c.orig
+--- linux-2.6.32-279.el6.x86_64/net/ipv4/syncookies.c.orig	1969-12-31 19:00:00.000000000 -0500
 +++ linux-2.6.32-279.el6.dsnat/net/ipv4/syncookies.c.orig	2013-09-06 14:32:44.449042664 -0400
 @@ -0,0 +1,366 @@
 +/*
@@ -1475,8 +1475,8 @@ diff -ruNp linux-2.6.32-279.el6/net/ipv4/syncookies.c.orig linux-2.6.32-279.el6.
 +	ret = get_cookie_sock(sk, skb, req, &rt->u.dst);
 +out:	return ret;
 +}
-diff -ruNp linux-2.6.32-279.el6/net/ipv6/syncookies.c linux-2.6.32-279.el6.dsnat/net/ipv6/syncookies.c
---- linux-2.6.32-279.el6/net/ipv6/syncookies.c	2012-06-13 17:41:10.000000000 -0400
+diff -ruNp linux-2.6.32-279.el6.x86_64/net/ipv6/syncookies.c linux-2.6.32-279.el6.dsnat/net/ipv6/syncookies.c
+--- linux-2.6.32-279.el6.x86_64/net/ipv6/syncookies.c	2012-06-13 17:41:10.000000000 -0400
 +++ linux-2.6.32-279.el6.dsnat/net/ipv6/syncookies.c	2013-09-06 14:43:17.669116900 -0400
 @@ -12,6 +12,12 @@
   *      as published by the Free Software Foundation; either version
@@ -1587,8 +1587,8 @@ diff -ruNp linux-2.6.32-279.el6/net/ipv6/syncookies.c linux-2.6.32-279.el6.dsnat
 +out:   return ret;
 +}
 +EXPORT_SYMBOL(ip_vs_synproxy_v6_cookie_check);
-diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_conn.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_conn.c
---- linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_conn.c	2012-06-13 17:41:10.000000000 -0400
+diff -ruNp linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_conn.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_conn.c
+--- linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_conn.c	2012-06-13 17:41:10.000000000 -0400
 +++ linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_conn.c	2013-09-06 14:49:35.475089824 -0400
 @@ -19,7 +19,16 @@
   * and others. Many code here is taken from IP MASQ code of kernel 2.2.
@@ -2744,8 +2744,8 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_conn.c linux-2.6.32-279
  
  	for (idx = 0; idx < IP_VS_CONN_TAB_SIZE; idx++) {
  		INIT_LIST_HEAD(&ip_vs_conn_tab[idx]);
-diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_core.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_core.c
---- linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_core.c	2012-06-13 17:41:10.000000000 -0400
+diff -ruNp linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_core.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_core.c
+--- linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_core.c	2012-06-13 17:41:10.000000000 -0400
 +++ linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_core.c	2013-09-06 14:49:36.018043701 -0400
 @@ -22,6 +22,12 @@
   *	Paul `Rusty' Russell		properly handle non-linear skbs
@@ -3682,9 +3682,9 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_core.c linux-2.6.32-279
  #endif
  };
  
-diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_ctl.c
---- linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c	2012-06-13 17:41:10.000000000 -0400
-+++ linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_ctl.c	2013-09-06 14:49:36.580298893 -0400
+diff -ruNp linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_ctl.c
+--- linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_ctl.c	2012-06-13 17:41:10.000000000 -0400
++++ linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_ctl.c	2013-09-07 12:05:05.659119791 -0400
 @@ -15,7 +15,11 @@
   *              2 of the License, or (at your option) any later version.
   *
@@ -4019,7 +4019,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  /*
   *	Returns hash value for real service
   */
-@@ -1146,132 +1321,133 @@ ip_vs_del_dest(struct ip_vs_service *svc
+@@ -1146,132 +1321,137 @@ ip_vs_del_dest(struct ip_vs_service *svc
  	return 0;
  }
  
@@ -4210,6 +4210,10 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
 +	struct ip_vs_laddr *laddr;
 +	int ret;
  
++  if (svc == NULL) {
++    return -ENOENT; 
++  }
++
 +	IP_VS_DBG_BUF(0, "vip %s:%d add local address %s\n",
 +		      IP_VS_DBG_ADDR(svc->af, &svc->addr), ntohs(svc->port),
 +		      IP_VS_DBG_ADDR(svc->af, &uladdr->addr));
@@ -4250,7 +4254,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  
  	write_lock_bh(&__ip_vs_svc_lock);
  
-@@ -1280,64 +1456,473 @@ ip_vs_edit_service(struct ip_vs_service 
+@@ -1280,64 +1460,485 @@ ip_vs_edit_service(struct ip_vs_service 
  	 */
  	IP_VS_WAIT_WHILE(atomic_read(&svc->usecnt) > 1);
  
@@ -4329,8 +4333,12 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
 +	struct ip_vs_laddr *laddr;
 +	int ret;
 +#ifdef CONFIG_IP_VS_DEBUG
-+	union nf_inet_addr netmask = {.ip = zone->netmask};
++	union nf_inet_addr netmask = {.ip = zone?zone->netmask:0};
 +#endif	
++
++  if (zone == NULL) {
++    return -ESRCH; 
++  }
 +
 +	IP_VS_DBG_BUF(0, "zone %s/%s add local address %s\n",
 +		      IP_VS_DBG_ADDR(AF_INET, &zone->addr), IP_VS_DBG_ADDR(AF_INET, &netmask),
@@ -4390,6 +4398,10 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
 +{
 +	struct ip_vs_laddr *laddr;
 +
++  if (svc == NULL) {
++    return -ENOENT; 
++  }
++
 +	IP_VS_DBG_BUF(0, "vip %s:%d del local address %s\n",
 +		      IP_VS_DBG_ADDR(svc->af, &svc->addr), ntohs(svc->port),
 +		      IP_VS_DBG_ADDR(svc->af, &uladdr->addr));
@@ -4439,8 +4451,12 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
 +{
 +	struct ip_vs_laddr *laddr;
 +#ifdef CONFIG_IP_VS_DEBUG	
-+	union nf_inet_addr netmask = {.ip = zone->netmask};
++	union nf_inet_addr netmask = {.ip = zone?zone->netmask:0};
 +#endif
++
++  if (zone == NULL) {
++    return -ESRCH; 
++  }
 +
 +	IP_VS_DBG_BUF(0, "zone %s/%s del local address %s\n",
 +		      IP_VS_DBG_ADDR(AF_INET, &zone->addr),
@@ -4774,7 +4790,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  	struct ip_vs_scheduler *old_sched;
  
  	/* Count only IPv4 services for old get/setsockopt interface */
-@@ -1358,6 +1943,7 @@ static void __ip_vs_del_service(struct i
+@@ -1358,6 +1959,7 @@ static void __ip_vs_del_service(struct i
  		svc->inc = NULL;
  	}
  
@@ -4782,7 +4798,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  	/*
  	 *    Unlink the whole destination list
  	 */
-@@ -1390,7 +1976,7 @@ static void __ip_vs_del_service(struct i
+@@ -1390,7 +1992,7 @@ static void __ip_vs_del_service(struct i
  static int ip_vs_del_service(struct ip_vs_service *svc)
  {
  	if (svc == NULL)
@@ -4791,7 +4807,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  
  	/*
  	 * Unhash it from the service table
-@@ -1535,7 +2121,6 @@ proc_do_sync_threshold(ctl_table *table,
+@@ -1535,7 +2137,6 @@ proc_do_sync_threshold(ctl_table *table,
  	return rc;
  }
  
@@ -4799,7 +4815,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  /*
   *	IPVS sysctl table (under the /proc/sys/net/ipv4/vs/)
   */
-@@ -1550,163 +2135,411 @@ static struct ctl_table vs_vars[] = {
+@@ -1550,163 +2151,411 @@ static struct ctl_table vs_vars[] = {
  	},
  #ifdef CONFIG_IP_VS_DEBUG
  	{
@@ -5366,7 +5382,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  };
  
  const struct ctl_path net_vs_ctl_path[] = {
-@@ -1739,6 +2572,8 @@ static inline const char *ip_vs_fwd_name
+@@ -1739,6 +2588,8 @@ static inline const char *ip_vs_fwd_name
  		return "Tunnel";
  	case IP_VS_CONN_F_DROUTE:
  		return "Route";
@@ -5375,7 +5391,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  	default:
  		return "Masq";
  	}
-@@ -1953,7 +2788,7 @@ static int ip_vs_stats_show(struct seq_f
+@@ -1953,7 +2804,7 @@ static int ip_vs_stats_show(struct seq_f
  		   "   Conns  Packets  Packets            Bytes            Bytes\n");
  
  	spin_lock_bh(&ip_vs_stats.lock);
@@ -5384,7 +5400,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  		   ip_vs_stats.ustats.inpkts, ip_vs_stats.ustats.outpkts,
  		   (unsigned long long) ip_vs_stats.ustats.inbytes,
  		   (unsigned long long) ip_vs_stats.ustats.outbytes);
-@@ -1987,6 +2822,100 @@ static const struct file_operations ip_v
+@@ -1987,6 +2838,100 @@ static const struct file_operations ip_v
  
  #endif
  
@@ -5485,7 +5501,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  /*
   *	Set timeout values for tcp tcpfin udp in the timeout_table.
   */
-@@ -2023,6 +2952,11 @@ static int ip_vs_set_timeout(struct ip_v
+@@ -2023,6 +2968,11 @@ static int ip_vs_set_timeout(struct ip_v
  #define SERVICE_ARG_LEN		(sizeof(struct ip_vs_service_user))
  #define SVCDEST_ARG_LEN		(sizeof(struct ip_vs_service_user) +	\
  				 sizeof(struct ip_vs_dest_user))
@@ -5497,7 +5513,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  #define TIMEOUT_ARG_LEN		(sizeof(struct ip_vs_timeout_user))
  #define DAEMON_ARG_LEN		(sizeof(struct ip_vs_daemon_user))
  #define MAX_ARG_LEN		SVCDEST_ARG_LEN
-@@ -2039,6 +2973,12 @@ static const unsigned char set_arglen[SE
+@@ -2039,6 +2989,12 @@ static const unsigned char set_arglen[SE
  	[SET_CMDID(IP_VS_SO_SET_STARTDAEMON)]	= DAEMON_ARG_LEN,
  	[SET_CMDID(IP_VS_SO_SET_STOPDAEMON)]	= DAEMON_ARG_LEN,
  	[SET_CMDID(IP_VS_SO_SET_ZERO)]		= SERVICE_ARG_LEN,
@@ -5510,7 +5526,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  };
  
  static void ip_vs_copy_usvc_compat(struct ip_vs_service_user_kern *usvc,
-@@ -2069,6 +3009,21 @@ static void ip_vs_copy_udest_compat(stru
+@@ -2069,6 +3025,21 @@ static void ip_vs_copy_udest_compat(stru
  	udest->l_threshold	= udest_compat->l_threshold;
  }
  
@@ -5532,7 +5548,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  static int
  do_ip_vs_set_ctl(struct sock *sk, int cmd, void __user *user, unsigned int len)
  {
-@@ -2079,6 +3034,12 @@ do_ip_vs_set_ctl(struct sock *sk, int cm
+@@ -2079,6 +3050,12 @@ do_ip_vs_set_ctl(struct sock *sk, int cm
  	struct ip_vs_service *svc;
  	struct ip_vs_dest_user *udest_compat;
  	struct ip_vs_dest_user_kern udest;
@@ -5545,7 +5561,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  
  	if (!capable(CAP_NET_ADMIN))
  		return -EPERM;
-@@ -2118,13 +3079,56 @@ do_ip_vs_set_ctl(struct sock *sk, int cm
+@@ -2118,13 +3095,56 @@ do_ip_vs_set_ctl(struct sock *sk, int cm
  		goto out_unlock;
  	}
  
@@ -5604,7 +5620,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  
  	if (cmd == IP_VS_SO_SET_ZERO) {
  		/* if no service address is set, zero counters in all */
-@@ -2144,6 +3148,9 @@ do_ip_vs_set_ctl(struct sock *sk, int cm
+@@ -2144,6 +3164,9 @@ do_ip_vs_set_ctl(struct sock *sk, int cm
  		goto out_unlock;
  	}
  
@@ -5614,7 +5630,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  	/* Lookup the exact service by <protocol, addr, port> or fwmark */
  	if (usvc.fwmark == 0)
  		svc = __ip_vs_service_get(usvc.af, usvc.protocol,
-@@ -2161,8 +3168,19 @@ do_ip_vs_set_ctl(struct sock *sk, int cm
+@@ -2161,8 +3184,19 @@ do_ip_vs_set_ctl(struct sock *sk, int cm
  	case IP_VS_SO_SET_ADD:
  		if (svc != NULL)
  			ret = -EEXIST;
@@ -5635,7 +5651,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  		break;
  	case IP_VS_SO_SET_EDIT:
  		ret = ip_vs_edit_service(svc, &usvc);
-@@ -2176,14 +3194,25 @@ do_ip_vs_set_ctl(struct sock *sk, int cm
+@@ -2176,14 +3210,25 @@ do_ip_vs_set_ctl(struct sock *sk, int cm
  		ret = ip_vs_zero_service(svc);
  		break;
  	case IP_VS_SO_SET_ADDDEST:
@@ -5661,7 +5677,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  	default:
  		ret = -EINVAL;
  	}
-@@ -2210,6 +3239,15 @@ ip_vs_copy_stats(struct ip_vs_stats_user
+@@ -2210,6 +3255,15 @@ ip_vs_copy_stats(struct ip_vs_stats_user
  }
  
  static void
@@ -5677,7 +5693,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  ip_vs_copy_service(struct ip_vs_service_entry *dst, struct ip_vs_service *src)
  {
  	dst->protocol = src->protocol;
-@@ -2221,6 +3259,7 @@ ip_vs_copy_service(struct ip_vs_service_
+@@ -2221,6 +3275,7 @@ ip_vs_copy_service(struct ip_vs_service_
  	dst->timeout = src->timeout / HZ;
  	dst->netmask = src->netmask;
  	dst->num_dests = src->num_dests;
@@ -5685,7 +5701,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  	ip_vs_copy_stats(&dst->stats, &src->stats);
  }
  
-@@ -2278,35 +3317,136 @@ static inline int
+@@ -2278,35 +3333,136 @@ static inline int
  __ip_vs_get_dest_entries(const struct ip_vs_get_dests *get,
  			 struct ip_vs_get_dests __user *uptr)
  {
@@ -5844,7 +5860,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  			if (copy_to_user(&uptr->entrytable[count],
  					 &entry, sizeof(entry))) {
  				ret = -EFAULT;
-@@ -2314,14 +3454,13 @@ __ip_vs_get_dest_entries(const struct ip
+@@ -2314,14 +3470,13 @@ __ip_vs_get_dest_entries(const struct ip
  			}
  			count++;
  		}
@@ -5861,7 +5877,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  {
  #ifdef CONFIG_IP_VS_PROTO_TCP
  	u->tcp_timeout =
-@@ -2341,8 +3480,12 @@ __ip_vs_get_timeouts(struct ip_vs_timeou
+@@ -2341,8 +3496,12 @@ __ip_vs_get_timeouts(struct ip_vs_timeou
  #define GET_SERVICES_ARG_LEN	(sizeof(struct ip_vs_get_services))
  #define GET_SERVICE_ARG_LEN	(sizeof(struct ip_vs_service_entry))
  #define GET_DESTS_ARG_LEN	(sizeof(struct ip_vs_get_dests))
@@ -5874,7 +5890,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  
  static const unsigned char get_arglen[GET_CMDID(IP_VS_SO_GET_MAX)+1] = {
  	[GET_CMDID(IP_VS_SO_GET_VERSION)]	= 64,
-@@ -2350,8 +3493,12 @@ static const unsigned char get_arglen[GE
+@@ -2350,8 +3509,12 @@ static const unsigned char get_arglen[GE
  	[GET_CMDID(IP_VS_SO_GET_SERVICES)]	= GET_SERVICES_ARG_LEN,
  	[GET_CMDID(IP_VS_SO_GET_SERVICE)]	= GET_SERVICE_ARG_LEN,
  	[GET_CMDID(IP_VS_SO_GET_DESTS)]		= GET_DESTS_ARG_LEN,
@@ -5887,7 +5903,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  };
  
  static int
-@@ -2396,6 +3543,7 @@ do_ip_vs_get_ctl(struct sock *sk, int cm
+@@ -2396,6 +3559,7 @@ do_ip_vs_get_ctl(struct sock *sk, int cm
  		info.version = IP_VS_VERSION_CODE;
  		info.size = IP_VS_CONN_TAB_SIZE;
  		info.num_services = ip_vs_num_services;
@@ -5895,7 +5911,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  		if (copy_to_user(user, &info, sizeof(info)) != 0)
  			ret = -EFAULT;
  	}
-@@ -2458,6 +3606,74 @@ do_ip_vs_get_ctl(struct sock *sk, int cm
+@@ -2458,6 +3622,74 @@ do_ip_vs_get_ctl(struct sock *sk, int cm
  	}
  	break;
  
@@ -5970,7 +5986,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  	case IP_VS_SO_GET_TIMEOUT:
  	{
  		struct ip_vs_timeout_user t;
-@@ -2530,6 +3746,8 @@ static const struct nla_policy ip_vs_cmd
+@@ -2530,6 +3762,8 @@ static const struct nla_policy ip_vs_cmd
  	[IPVS_CMD_ATTR_TIMEOUT_TCP]	= { .type = NLA_U32 },
  	[IPVS_CMD_ATTR_TIMEOUT_TCP_FIN]	= { .type = NLA_U32 },
  	[IPVS_CMD_ATTR_TIMEOUT_UDP]	= { .type = NLA_U32 },
@@ -5979,7 +5995,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  };
  
  /* Policy used for attributes in nested attribute IPVS_CMD_ATTR_DAEMON */
-@@ -2572,6 +3790,19 @@ static const struct nla_policy ip_vs_des
+@@ -2572,6 +3806,19 @@ static const struct nla_policy ip_vs_des
  	[IPVS_DEST_ATTR_STATS]		= { .type = NLA_NESTED },
  };
  
@@ -5999,7 +6015,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  static int ip_vs_genl_fill_stats(struct sk_buff *skb, int container_type,
  				 struct ip_vs_stats *stats)
  {
-@@ -2581,9 +3812,9 @@ static int ip_vs_genl_fill_stats(struct 
+@@ -2581,9 +3828,9 @@ static int ip_vs_genl_fill_stats(struct 
  
  	spin_lock_bh(&stats->lock);
  
@@ -6012,7 +6028,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  	NLA_PUT_U64(skb, IPVS_STATS_ATTR_INBYTES, stats->ustats.inbytes);
  	NLA_PUT_U64(skb, IPVS_STATS_ATTR_OUTBYTES, stats->ustats.outbytes);
  	NLA_PUT_U32(skb, IPVS_STATS_ATTR_CPS, stats->ustats.cps);
-@@ -2893,6 +4124,207 @@ out_err:
+@@ -2893,6 +4140,207 @@ out_err:
  	return skb->len;
  }
  
@@ -6220,7 +6236,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  static int ip_vs_genl_parse_dest(struct ip_vs_dest_user_kern *udest,
  				 struct nlattr *nla, int full_entry)
  {
-@@ -3053,6 +4485,8 @@ static int ip_vs_genl_set_cmd(struct sk_
+@@ -3053,6 +4501,8 @@ static int ip_vs_genl_set_cmd(struct sk_
  	struct ip_vs_service *svc = NULL;
  	struct ip_vs_service_user_kern usvc;
  	struct ip_vs_dest_user_kern udest;
@@ -6229,7 +6245,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  	int ret = 0, cmd;
  	int need_full_svc = 0, need_full_dest = 0;
  
-@@ -3130,10 +4564,21 @@ static int ip_vs_genl_set_cmd(struct sk_
+@@ -3130,10 +4580,21 @@ static int ip_vs_genl_set_cmd(struct sk_
  			goto out;
  	}
  
@@ -6251,7 +6267,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  		else
  			ret = -EEXIST;
  		break;
-@@ -3155,6 +4600,12 @@ static int ip_vs_genl_set_cmd(struct sk_
+@@ -3155,6 +4616,12 @@ static int ip_vs_genl_set_cmd(struct sk_
  	case IPVS_CMD_ZERO:
  		ret = ip_vs_zero_service(svc);
  		break;
@@ -6264,7 +6280,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  	default:
  		ret = -EINVAL;
  	}
-@@ -3167,6 +4618,75 @@ out:
+@@ -3167,6 +4634,75 @@ out:
  	return ret;
  }
  
@@ -6340,7 +6356,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  static int ip_vs_genl_get_cmd(struct sk_buff *skb, struct genl_info *info)
  {
  	struct sk_buff *msg;
-@@ -3353,6 +4873,55 @@ static struct genl_ops ip_vs_genl_ops[] 
+@@ -3353,6 +4889,55 @@ static struct genl_ops ip_vs_genl_ops[] 
  		.flags	= GENL_ADMIN_PERM,
  		.doit	= ip_vs_genl_set_cmd,
  	},
@@ -6396,7 +6412,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  };
  
  static int __init ip_vs_genl_register(void)
-@@ -3388,7 +4957,15 @@ int __init ip_vs_control_init(void)
+@@ -3388,7 +4973,15 @@ int __init ip_vs_control_init(void)
  		nf_unregister_sockopt(&ip_vs_sockopts);
  		return ret;
  	}
@@ -6412,7 +6428,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  	proc_net_fops_create(&init_net, "ip_vs", 0, &ip_vs_info_fops);
  	proc_net_fops_create(&init_net, "ip_vs_stats",0, &ip_vs_stats_fops);
  
-@@ -3402,12 +4979,14 @@ int __init ip_vs_control_init(void)
+@@ -3402,12 +4995,14 @@ int __init ip_vs_control_init(void)
  	for(idx = 0; idx < IP_VS_RTAB_SIZE; idx++)  {
  		INIT_LIST_HEAD(&ip_vs_rtable[idx]);
  	}
@@ -6427,7 +6443,7 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  	LeaveFunction(2);
  	return 0;
  }
-@@ -3423,6 +5002,8 @@ void ip_vs_control_cleanup(void)
+@@ -3423,6 +5018,8 @@ void ip_vs_control_cleanup(void)
  	unregister_sysctl_table(sysctl_header);
  	proc_net_remove(&init_net, "ip_vs_stats");
  	proc_net_remove(&init_net, "ip_vs");
@@ -6436,8 +6452,8 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.
  	ip_vs_genl_unregister();
  	nf_unregister_sockopt(&ip_vs_sockopts);
  	LeaveFunction(2);
-diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_est.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_est.c
---- linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_est.c	2009-12-02 22:51:21.000000000 -0500
+diff -ruNp linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_est.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_est.c
+--- linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_est.c	2009-12-02 22:51:21.000000000 -0500
 +++ linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_est.c	2013-09-06 14:49:37.615482111 -0400
 @@ -9,7 +9,7 @@
   *              2 of the License, or (at your option) any later version.
@@ -6475,8 +6491,8 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_est.c linux-2.6.32-279.
  
  	spin_lock_bh(&est_lock);
  	list_add(&est->list, &est_list);
-diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ftp.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_ftp.c
---- linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ftp.c	2009-12-02 22:51:21.000000000 -0500
+diff -ruNp linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_ftp.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_ftp.c
+--- linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_ftp.c	2009-12-02 22:51:21.000000000 -0500
 +++ linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_ftp.c	2013-09-06 14:49:38.068158412 -0400
 @@ -148,7 +148,7 @@ static int ip_vs_ftp_out(struct ip_vs_ap
  	struct ip_vs_conn *n_cp;
@@ -6536,8 +6552,8 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ftp.c linux-2.6.32-279.
  		if (!n_cp)
  			return 0;
  
-diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_lblc.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_lblc.c
---- linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_lblc.c	2009-12-02 22:51:21.000000000 -0500
+diff -ruNp linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_lblc.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_lblc.c
+--- linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_lblc.c	2009-12-02 22:51:21.000000000 -0500
 +++ linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_lblc.c	2013-09-06 14:49:38.563049782 -0400
 @@ -95,7 +95,6 @@ struct ip_vs_lblc_entry {
  	unsigned long           lastuse;        /* last used time */
@@ -6547,8 +6563,8 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_lblc.c linux-2.6.32-279
  /*
   *      IPVS lblc hash table
   */
-diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_proto_ah_esp.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_proto_ah_esp.c
---- linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_proto_ah_esp.c	2009-12-02 22:51:21.000000000 -0500
+diff -ruNp linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_proto_ah_esp.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_proto_ah_esp.c
+--- linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_proto_ah_esp.c	2009-12-02 22:51:21.000000000 -0500
 +++ linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_proto_ah_esp.c	2013-09-06 14:49:41.329096863 -0400
 @@ -44,22 +44,20 @@ struct isakmp_hdr {
  static struct ip_vs_conn *
@@ -6616,8 +6632,8 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_proto_ah_esp.c linux-2.
  	}
  
  	if (!cp) {
-diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_proto.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_proto.c
---- linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_proto.c	2012-06-13 17:41:10.000000000 -0400
+diff -ruNp linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_proto.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_proto.c
+--- linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_proto.c	2012-06-13 17:41:10.000000000 -0400
 +++ linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_proto.c	2013-09-06 14:49:42.058058290 -0400
 @@ -171,8 +171,7 @@ ip_vs_tcpudp_debug_packet_v4(struct ip_v
  		sprintf(buf, "%s %pI4->%pI4 frag",
@@ -6629,8 +6645,8 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_proto.c linux-2.6.32-27
  		pptr = skb_header_pointer(skb, offset + ih->ihl*4,
  					  sizeof(_ports), _ports);
  		if (pptr == NULL)
-diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_proto_icmp.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_proto_icmp.c
---- linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_proto_icmp.c	1969-12-31 19:00:00.000000000 -0500
+diff -ruNp linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_proto_icmp.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_proto_icmp.c
+--- linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_proto_icmp.c	1969-12-31 19:00:00.000000000 -0500
 +++ linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_proto_icmp.c	2013-09-06 14:49:42.751061086 -0400
 @@ -0,0 +1,610 @@
 +/*
@@ -7243,8 +7259,8 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_proto_icmp.c linux-2.6.
 +	.timeout_change = NULL,
 +	.set_state_timeout = icmp_set_state_timeout,
 +};
-diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_proto_sctp.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_proto_sctp.c
---- linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_proto_sctp.c	2012-06-13 17:41:10.000000000 -0400
+diff -ruNp linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_proto_sctp.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_proto_sctp.c
+--- linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_proto_sctp.c	2012-06-13 17:41:10.000000000 -0400
 +++ linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_proto_sctp.c	2013-09-06 14:49:43.338493130 -0400
 @@ -44,7 +44,7 @@ sctp_conn_schedule(int af, struct sk_buf
  		 * Let the virtual server select a real server for the
@@ -7255,8 +7271,8 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_proto_sctp.c linux-2.6.
  		if (!*cpp) {
  			*verdict = ip_vs_leave(svc, skb, pp);
  			return 0;
-diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_proto_tcp.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_proto_tcp.c
---- linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_proto_tcp.c	2012-06-13 17:41:10.000000000 -0400
+diff -ruNp linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_proto_tcp.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_proto_tcp.c
+--- linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_proto_tcp.c	2012-06-13 17:41:10.000000000 -0400
 +++ linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_proto_tcp.c	2013-09-06 14:49:43.886541562 -0400
 @@ -10,7 +10,11 @@
   *              2 of the License, or (at your option) any later version.
@@ -8251,8 +8267,8 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_proto_tcp.c linux-2.6.3
  	.set_state_timeout =	tcp_set_state_timeout,
 +	.conn_expire_handler = tcp_conn_expire_handler,
  };
-diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_proto_udp.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_proto_udp.c
---- linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_proto_udp.c	2012-06-13 17:41:10.000000000 -0400
+diff -ruNp linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_proto_udp.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_proto_udp.c
+--- linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_proto_udp.c	2012-06-13 17:41:10.000000000 -0400
 +++ linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_proto_udp.c	2013-09-06 14:49:44.397356543 -0400
 @@ -60,7 +60,7 @@ udp_conn_schedule(int af, struct sk_buff
  		 * Let the virtual server select a real server for the
@@ -8470,8 +8486,8 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_proto_udp.c linux-2.6.3
  	.csum_check =		udp_csum_check,
  	.state_transition =	udp_state_transition,
  	.state_name =		udp_state_name,
-diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_sync.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_sync.c
---- linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_sync.c	2012-06-13 17:41:10.000000000 -0400
+diff -ruNp linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_sync.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_sync.c
+--- linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_sync.c	2012-06-13 17:41:10.000000000 -0400
 +++ linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_sync.c	2013-09-06 14:49:47.647158513 -0400
 @@ -303,6 +303,7 @@ static void ip_vs_process_message(const 
  	struct ip_vs_dest *dest;
@@ -8504,8 +8520,8 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_sync.c linux-2.6.32-279
  			if (dest)
  				atomic_dec(&dest->refcnt);
  			if (!cp) {
-diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_synproxy.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_synproxy.c
---- linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_synproxy.c	1969-12-31 19:00:00.000000000 -0500
+diff -ruNp linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_synproxy.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_synproxy.c
+--- linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_synproxy.c	1969-12-31 19:00:00.000000000 -0500
 +++ linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_synproxy.c	2013-09-06 14:49:48.403034801 -0400
 @@ -0,0 +1,1108 @@
 +/*
@@ -9616,8 +9632,8 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_synproxy.c linux-2.6.32
 +	spin_unlock(&cp->lock);
 +	return 1;
 +}
-diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_xmit.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_xmit.c
---- linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_xmit.c	2009-12-02 22:51:21.000000000 -0500
+diff -ruNp linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_xmit.c linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_xmit.c
+--- linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_xmit.c	2009-12-02 22:51:21.000000000 -0500
 +++ linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/ip_vs_xmit.c	2013-09-06 14:49:51.098809644 -0400
 @@ -10,6 +10,11 @@
   *              2 of the License, or (at your option) any later version.
@@ -10375,8 +10391,8 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_xmit.c linux-2.6.32-279
  		if (cp->packet_xmit)
  			rc = cp->packet_xmit(skb, cp, pp);
  		else
-diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/Kconfig linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/Kconfig
---- linux-2.6.32-279.el6/net/netfilter/ipvs/Kconfig	2012-06-13 17:41:10.000000000 -0400
+diff -ruNp linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/Kconfig linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/Kconfig
+--- linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/Kconfig	2012-06-13 17:41:10.000000000 -0400
 +++ linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/Kconfig	2013-09-06 14:43:17.672170163 -0400
 @@ -43,8 +43,8 @@ config	IP_VS_DEBUG
  
@@ -10389,8 +10405,8 @@ diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/Kconfig linux-2.6.32-279.el6.
  	---help---
  	  The IPVS connection hash table uses the chaining scheme to handle
  	  hash collisions. Using a big IPVS connection hash table will greatly
-diff -ruNp linux-2.6.32-279.el6/net/netfilter/ipvs/Makefile linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/Makefile
---- linux-2.6.32-279.el6/net/netfilter/ipvs/Makefile	2012-06-13 17:41:10.000000000 -0400
+diff -ruNp linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/Makefile linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/Makefile
+--- linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/Makefile	2012-06-13 17:41:10.000000000 -0400
 +++ linux-2.6.32-279.el6.dsnat/net/netfilter/ipvs/Makefile	2013-09-06 14:43:17.673038240 -0400
 @@ -12,6 +12,7 @@ ip_vs_proto-objs-$(CONFIG_IP_VS_PROTO_SC
  ip_vs-objs :=	ip_vs_conn.o ip_vs_core.o ip_vs_ctl.o ip_vs_sched.o	   \
