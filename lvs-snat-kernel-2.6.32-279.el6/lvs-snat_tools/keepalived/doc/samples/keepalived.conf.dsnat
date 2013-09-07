@@ -1,0 +1,64 @@
+! Configuration File for keepalived 
+global_defs { 
+!   notification_email { 
+!        root@localhost #接收警报的 email 地址,可以添加多个 
+!   } 
+!   notification_email_from yejkkeepalive@localhost  
+!   smtp_server 127.0.0.1 #使用本机转发 email 
+!   smtp_connect_timeout 30 
+!   router_id LVS_yejk #load balancer 的标识 ID,用于 email 警报 
+} 
+
+local_address_group laddr_g1 {
+    1.2.100.1
+    1.2.100.2
+}
+
+local_address_group laddr_g2 {
+    1.2.100.3
+    1.2.100.4
+}
+
+zone 1.0.0.0 16 {
+    laddr_group_name laddr_g1
+}
+
+zone 0.0.0.0 0.0.0.0 {
+    laddr_group_name laddr_g2
+}
+
+vrrp_sync_group G1 {
+   group {
+        VI_1
+   }
+}
+
+vrrp_instance VI_1 { 
+    state MASTER/BACKUP   #备机改为 BACKUP,此状态是由 priority 的值来决定的 
+    interface eth1  #HA 监测网络接口 
+    virtual_router_id 82 #主、备机的 virtual_router_id 必须相同 
+    priority 150 #主机的优先级,备份机改为 50 
+    advert_int 1 #主备之间的通告间隔秒数 
+    authentication { #主备切换时的验证 
+        auth_type PASS 
+        auth_pass 1111 
+    } 
+    virtual_ipaddress { #HA 虚拟 ip,可加多个 
+        1.1.1.100
+    } 
+} 
+
+virtual_server 0.0.0.0 0 {
+    delay_loop 6
+    lb_algo rr
+    lb_kind FNAT
+    protocol TCP
+}
+
+virtual_server 0.0.0.0 0 {
+    delay_loop 6
+    lb_algo rr
+    lb_kind FNAT
+    protocol UDP
+}
+
