@@ -1,7 +1,7 @@
 ##lvs-snat
 
 在小米的dsnat基础上修改，修复了跟NAT/FULLNAT的兼容性问题。
-dsnat提供了内网机器访问外网的功能，见[https://github.com/xiaomi-sa/dsnat](https://github.com/xiaomi-sa/dsnat "DSNAT") 。
+dsnat提供了内网机器访问外网的功能，但是跟NAT/FULLNAT同时使用会有一些问题，见[https://github.com/xiaomi-sa/dsnat](https://github.com/xiaomi-sa/dsnat "DSNAT") 。
 
 #####修复了dsnat两个问题
 
