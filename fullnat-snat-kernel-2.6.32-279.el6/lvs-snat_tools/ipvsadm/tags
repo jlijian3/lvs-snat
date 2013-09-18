@@ -1,0 +1,183 @@
+!_TAG_FILE_FORMAT	2	/extended format; --format=1 will not append ;" to lines/
+!_TAG_FILE_SORTED	1	/0=unsorted, 1=sorted, 2=foldcase/
+!_TAG_PROGRAM_AUTHOR	Darren Hiebert	/dhiebert@users.sourceforge.net/
+!_TAG_PROGRAM_NAME	Exuberant Ctags	//
+!_TAG_PROGRAM_URL	http://ctags.sourceforge.net	/official site/
+!_TAG_PROGRAM_VERSION	5.8	//
+.PHONY	Makefile	/^.PHONY	= all clean install dist distclean rpm rpms$/;"	m
+ARCH	Makefile	/^ARCH		= $(shell uname -m)$/;"	m
+CC	Makefile	/^CC		= gcc$/;"	m
+CFLAGS	Makefile	/^    CFLAGS = -Wall -Wunused -Wstrict-prototypes -g -m64 -pipe -mcpu=ultrasparc -mcmodel=medlow$/;"	m
+CFLAGS	Makefile	/^    CFLAGS = -Wall -Wunused -Wstrict-prototypes -g$/;"	m
+CMD_ADD	ipvsadm.c	127;"	d	file:
+CMD_ADDDEST	ipvsadm.c	132;"	d	file:
+CMD_ADDLADDR	ipvsadm.c	141;"	d	file:
+CMD_ADDZONE	ipvsadm.c	144;"	d	file:
+CMD_DEL	ipvsadm.c	129;"	d	file:
+CMD_DELDEST	ipvsadm.c	133;"	d	file:
+CMD_DELLADDR	ipvsadm.c	142;"	d	file:
+CMD_DELZONE	ipvsadm.c	145;"	d	file:
+CMD_EDIT	ipvsadm.c	128;"	d	file:
+CMD_EDITDEST	ipvsadm.c	134;"	d	file:
+CMD_FLUSH	ipvsadm.c	130;"	d	file:
+CMD_GETLADDR	ipvsadm.c	143;"	d	file:
+CMD_LIST	ipvsadm.c	131;"	d	file:
+CMD_MAX	ipvsadm.c	146;"	d	file:
+CMD_NONE	ipvsadm.c	126;"	d	file:
+CMD_RESTORE	ipvsadm.c	138;"	d	file:
+CMD_SAVE	ipvsadm.c	139;"	d	file:
+CMD_STARTDAEMON	ipvsadm.c	136;"	d	file:
+CMD_STOPDAEMON	ipvsadm.c	137;"	d	file:
+CMD_TIMEOUT	ipvsadm.c	135;"	d	file:
+CMD_ZERO	ipvsadm.c	140;"	d	file:
+CONFIG_STREAM_FLIM	config_stream.h	11;"	d
+CONN_PROC_FILE	ipvsadm.c	257;"	d	file:
+DEFAULT_DYNAMIC_ARRAY_BLOCK_SIZE	dynamic_array.h	27;"	d
+DEFINES	Makefile	/^DEFINES		= -DVERSION=\\"$(VERSION)\\" -DSCHEDULERS=\\"$(SCHEDULERS)\\" \\$/;"	m
+DEF_MCAST_IFN	ipvsadm.c	255;"	d	file:
+DEF_SCHED	ipvsadm.c	252;"	d	file:
+DESTROY_STR	dynamic_array.h	31;"	d
+DISPLAY_STR	dynamic_array.h	33;"	d
+DUP_STR	dynamic_array.h	32;"	d
+DYNAMIC_ARRAY_FLIM	dynamic_array.h	15;"	d
+FMT_EXACT	ipvsadm.c	242;"	d	file:
+FMT_NONE	ipvsadm.c	234;"	d	file:
+FMT_NOSORT	ipvsadm.c	241;"	d	file:
+FMT_NUMERIC	ipvsadm.c	235;"	d	file:
+FMT_PERSISTENTCONN	ipvsadm.c	240;"	d	file:
+FMT_RATE	ipvsadm.c	238;"	d	file:
+FMT_RULE	ipvsadm.c	236;"	d	file:
+FMT_STATS	ipvsadm.c	237;"	d	file:
+FMT_THRESHOLDS	ipvsadm.c	239;"	d	file:
+INCLUDE	Makefile	/^INCLUDE		=$/;"	m
+INIT	Makefile	/^INIT		= $(RPM_BUILD_ROOT)\/etc\/rc.d\/init.d$/;"	m
+INSTALL	Makefile	/^INSTALL		= install$/;"	m
+IPVSADM_VERSION	ipvsadm.c	122;"	d	file:
+IPVSADM_VERSION_DATE	ipvsadm.c	121;"	d	file:
+IPVSADM_VERSION_NO	ipvsadm.c	120;"	d	file:
+IPVS_OPTION_PROCESSING	ipvsadm.c	115;"	d	file:
+LEN_STR	dynamic_array.h	34;"	d
+LIBS	Makefile	/^LIBS		= $(POPT_LIB)$/;"	m
+MAN	Makefile	/^MAN		= $(RPM_BUILD_ROOT)\/$(MANDIR)\/man8$/;"	m
+MANDIR	Makefile	/^MANDIR		= usr\/man$/;"	m
+MAX_LINE_LENGTH	config_stream.h	15;"	d
+MAX_TIMEOUT	ipvsadm.c	124;"	d	file:
+MKDIR	Makefile	/^MKDIR		= mkdir$/;"	m
+NAME	Makefile	/^NAME		= ipvsadm$/;"	m
+NUMBER_OF_CMD	ipvsadm.c	147;"	d	file:
+OBJS	Makefile	/^OBJS		= ipvsadm.o config_stream.o dynamic_array.o$/;"	m
+PE_LIST	Makefile	/^PE_LIST		= "$(shell cat PERSISTENCE_ENGINES)"$/;"	m
+POPT_DEFINE	Makefile	/^POPT_DEFINE = -DHAVE_POPT$/;"	m
+POPT_LIB	Makefile	/^POPT_LIB = -lpopt $/;"	m
+PRINT_NIP	ipvsadm.c	1876;"	d	file:
+PROGROOT	Makefile	/^PROGROOT	= $(shell basename `pwd`)$/;"	m
+RELEASE	Makefile	/^RELEASE		= 1$/;"	m
+RPMBUILD	Makefile	/^RPMBUILD = $(shell				\\$/;"	m
+RPMSOURCEDIR	Makefile	/^RPMSOURCEDIR	= $(shell rpm --eval '%_sourcedir')$/;"	m
+RPMSPECDIR	Makefile	/^RPMSPECDIR	= $(shell rpm --eval '%_specdir')$/;"	m
+SBIN	Makefile	/^SBIN		= $(RPM_BUILD_ROOT)\/sbin$/;"	m
+SCHEDULERS	Makefile	/^SCHEDULERS	= "$(shell cat SCHEDULERS)"$/;"	m
+SERVICE_ADDR	ipvsadm.c	248;"	d	file:
+SERVICE_NONE	ipvsadm.c	247;"	d	file:
+SERVICE_PORT	ipvsadm.c	249;"	d	file:
+STATIC_LIBS	Makefile	/^STATIC_LIBS	= ..\/keepalived\/keepalived\/libipvs-2.6\/libipvs.a$/;"	m
+TAG_DAEMON	ipvsadm.c	/^	TAG_DAEMON,$/;"	e	enum:__anon1	file:
+TAG_MCAST_INTERFACE	ipvsadm.c	/^	TAG_MCAST_INTERFACE,$/;"	e	enum:__anon1	file:
+TAG_NO_SORT	ipvsadm.c	/^	TAG_NO_SORT,$/;"	e	enum:__anon1	file:
+TAG_PERSISTENCE_ENGINE	ipvsadm.c	/^	TAG_PERSISTENCE_ENGINE,	$/;"	e	enum:__anon1	file:
+TAG_PERSISTENTCONN	ipvsadm.c	/^	TAG_PERSISTENTCONN,$/;"	e	enum:__anon1	file:
+TAG_RATE	ipvsadm.c	/^	TAG_RATE,$/;"	e	enum:__anon1	file:
+TAG_SET	ipvsadm.c	/^	TAG_SET	= 128,$/;"	e	enum:__anon1	file:
+TAG_SORT	ipvsadm.c	/^	TAG_SORT,$/;"	e	enum:__anon1	file:
+TAG_START_DAEMON	ipvsadm.c	/^	TAG_START_DAEMON,$/;"	e	enum:__anon1	file:
+TAG_STATS	ipvsadm.c	/^	TAG_STATS,$/;"	e	enum:__anon1	file:
+TAG_STOP_DAEMON	ipvsadm.c	/^	TAG_STOP_DAEMON	,$/;"	e	enum:__anon1	file:
+TAG_THRESHOLDS	ipvsadm.c	/^	TAG_THRESHOLDS,$/;"	e	enum:__anon1	file:
+TAG_TIMEOUT	ipvsadm.c	/^	TAG_TIMEOUT,$/;"	e	enum:__anon1	file:
+TAG_ZONE	ipvsadm.c	/^	TAG_ZONE,$/;"	e	enum:__anon1	file:
+VERSION	Makefile	/^VERSION		= $(shell cat VERSION)$/;"	m
+ZONE_ADDR	ipvsadm.c	245;"	d	file:
+ZONE_NONE	ipvsadm.c	244;"	d	file:
+__KERNEL__	ipvsadm.c	93;"	d	file:
+__numeric_to_ipaddr	ipvsadm.c	/^static struct in_addr *__numeric_to_ipaddr(const char *dotted, int is_mask)$/;"	f	file:
+action	ipvsadm.sh	/^  function action {$/;"	f
+addr_to_anyname	ipvsadm.c	/^static char * addr_to_anyname(int af, const void *addr)$/;"	f	file:
+addr_to_host	ipvsadm.c	/^static char * addr_to_host(int af, const void *addr)$/;"	f	file:
+addrnetmask_to_anyname	ipvsadm.c	/^addrnetmask_to_anyname(__be32 *addr, __be32 *netmask)$/;"	f	file:
+addrport_to_anyname	ipvsadm.c	/^addrport_to_anyname(int af, const void *addr, unsigned short port,$/;"	f	file:
+allocated_size	dynamic_array.h	/^  size_t allocated_size;$/;"	m	struct:__anon2
+block_size	dynamic_array.h	/^  size_t block_size;$/;"	m	struct:__anon2
+check_ipvs_version	ipvsadm.c	/^static void check_ipvs_version(void)$/;"	f	file:
+cmd	ipvsadm.c	/^	int			cmd;$/;"	m	struct:ipvs_command_entry	file:
+cmdnames	ipvsadm.c	/^static const char* cmdnames[] = {$/;"	v	file:
+commands_v_options	ipvsadm.c	/^static const char commands_v_options[NUMBER_OF_CMD][NUMBER_OF_OPT] =$/;"	v	file:
+config_stream_read	config_stream.c	/^config_stream_read(FILE * stream, const char *first_element)$/;"	f
+count	dynamic_array.h	/^  size_t count;$/;"	m	struct:__anon2
+daemon	ipvsadm.c	/^	ipvs_daemon_t		daemon;	$/;"	m	struct:ipvs_command_entry	file:
+dest	ipvsadm.c	/^	ipvs_dest_t		dest;$/;"	m	struct:ipvs_command_entry	file:
+dynamic_array_add_element	dynamic_array.c	/^dynamic_array_add_element(dynamic_array_t * a,$/;"	f
+dynamic_array_create	dynamic_array.c	/^dynamic_array_create(size_t block_size)$/;"	f
+dynamic_array_destroy	dynamic_array.c	/^dynamic_array_destroy(dynamic_array_t * a,$/;"	f
+dynamic_array_display	dynamic_array.c	/^dynamic_array_display(dynamic_array_t * a,$/;"	f
+dynamic_array_get_count	dynamic_array.c	/^dynamic_array_get_count(dynamic_array_t * a)$/;"	f
+dynamic_array_get_element	dynamic_array.c	/^dynamic_array_get_element(dynamic_array_t * a, size_t elementno)$/;"	f
+dynamic_array_get_vector	dynamic_array.c	/^dynamic_array_get_vector(dynamic_array_t * a)$/;"	f
+dynamic_array_split_str	dynamic_array.c	/^dynamic_array_split_str(char *string, const char delimiter)$/;"	f
+dynamic_array_t	dynamic_array.h	/^} dynamic_array_t;$/;"	t	typeref:struct:__anon2
+fail	ipvsadm.c	/^static void fail(int err, char *msg, ...)$/;"	f	file:
+failure	ipvsadm.sh	/^  function failure {$/;"	f
+fwd_name	ipvsadm.c	/^static inline char *fwd_name(unsigned flags)$/;"	f	file:
+fwd_switch	ipvsadm.c	/^static inline char *fwd_switch(unsigned flags)$/;"	f	file:
+generic_opt_check	ipvsadm.c	/^generic_opt_check(int command, int options)$/;"	f	file:
+host_to_addr	ipvsadm.c	/^int host_to_addr(const char *name, struct in_addr *addr)$/;"	f
+ipparse_hostnetwork	ipvsadm.c	/^ipparse_hostnetwork(const char *name, struct in_addr *addrp)$/;"	f	file:
+ipvs_command_entry	ipvsadm.c	/^struct ipvs_command_entry {$/;"	s	file:
+laddr	ipvsadm.c	/^	ipvs_laddr_t		laddr;$/;"	m	struct:ipvs_command_entry	file:
+list_all	ipvsadm.c	/^static void list_all(unsigned int format)$/;"	f	file:
+list_all_laddrs	ipvsadm.c	/^static int list_all_laddrs(void)$/;"	f	file:
+list_conn	ipvsadm.c	/^void list_conn(unsigned int format)$/;"	f
+list_daemon	ipvsadm.c	/^static void list_daemon(void)$/;"	f	file:
+list_laddrs	ipvsadm.c	/^static int list_laddrs(ipvs_zone_t *zone , int with_title)$/;"	f	file:
+list_laddrs_print_laddr	ipvsadm.c	/^static void list_laddrs_print_laddr(struct ip_vs_laddr_entry * entry)$/;"	f	file:
+list_laddrs_print_title	ipvsadm.c	/^static void list_laddrs_print_title(void)$/;"	f	file:
+list_laddrs_print_zone	ipvsadm.c	/^static void list_laddrs_print_zone(struct ip_vs_get_laddrs *d)$/;"	f	file:
+list_service	ipvsadm.c	/^static void list_service(ipvs_service_t *svc, unsigned int format)$/;"	f	file:
+list_timeout	ipvsadm.c	/^void list_timeout(void)$/;"	f
+main	ipvsadm.c	/^int main(int argc, char **argv)$/;"	f
+modprobe_ipvs	ipvsadm.c	/^static int modprobe_ipvs(void)$/;"	f	file:
+opt2name	ipvsadm.c	/^opt2name(int option)$/;"	f	file:
+optnames	ipvsadm.c	/^static const char* optnames[] = {$/;"	v	file:
+parse_fwmark	ipvsadm.c	/^static unsigned int parse_fwmark(char *buf)$/;"	f	file:
+parse_ipmask	ipvsadm.c	/^parse_ipmask(const char *mask, struct in_addr *maskaddr)$/;"	f	file:
+parse_netmask	ipvsadm.c	/^static int parse_netmask(char *buf, u_int32_t *addr)$/;"	f	file:
+parse_options	ipvsadm.c	/^parse_options(int argc, char **argv, struct ipvs_command_entry *ce,$/;"	f	file:
+parse_service	ipvsadm.c	/^parse_service(char *buf, ipvs_service_t *svc)$/;"	f	file:
+parse_timeout	ipvsadm.c	/^static int parse_timeout(char *buf, int min, int max)$/;"	f	file:
+parse_zone	ipvsadm.c	/^parse_zone(char *name, ipvs_zone_t *zone)$/;"	f	file:
+port_to_anyname	ipvsadm.c	/^static char * port_to_anyname(unsigned short port, unsigned short proto)$/;"	f	file:
+port_to_service	ipvsadm.c	/^static char * port_to_service(unsigned short port, unsigned short proto)$/;"	f	file:
+print_conn	ipvsadm.c	/^static void print_conn(char *buf, unsigned int format)$/;"	f	file:
+print_largenum	ipvsadm.c	/^static void print_largenum(unsigned long long i, unsigned int format)$/;"	f	file:
+print_service_entry	ipvsadm.c	/^print_service_entry(ipvs_service_entry_t *se, unsigned int format)$/;"	f	file:
+print_title	ipvsadm.c	/^static void print_title(unsigned int format)$/;"	f	file:
+print_zone_and_laddrs	ipvsadm.c	/^static void print_zone_and_laddrs(struct ip_vs_get_laddrs* d, int with_title)$/;"	f	file:
+process_options	ipvsadm.c	/^static int process_options(int argc, char **argv, int reading_stdin)$/;"	f	file:
+restore_table	ipvsadm.c	/^static int restore_table(int argc, char **argv, int reading_stdin)$/;"	f	file:
+service_to_port	ipvsadm.c	/^int service_to_port(const char *name, unsigned short proto)$/;"	f
+set_command	ipvsadm.c	/^set_command(int *cmd, const int newcmd)$/;"	f	file:
+set_option	ipvsadm.c	/^set_option(unsigned int *options, unsigned int option)$/;"	f	file:
+str_is_digit	ipvsadm.c	/^static int str_is_digit(const char *str)$/;"	f	file:
+string_to_number	ipvsadm.c	/^static int string_to_number(const char *s, int min, int max)$/;"	f	file:
+success	ipvsadm.sh	/^  function success {$/;"	f
+svc	ipvsadm.c	/^	ipvs_service_t		svc;$/;"	m	struct:ipvs_command_entry	file:
+timeout	ipvsadm.c	/^	ipvs_timeout_t		timeout;$/;"	m	struct:ipvs_command_entry	file:
+tryhelp_exit	ipvsadm.c	/^static void tryhelp_exit(const char *program, const int exit_status)$/;"	f	file:
+usage_exit	ipvsadm.c	/^static void usage_exit(const char *program, const int exit_status)$/;"	f	file:
+vector	dynamic_array.h	/^  void **vector;$/;"	m	struct:__anon2
+version	ipvsadm.c	/^static void version(FILE *stream)$/;"	f	file:
+version_exit	ipvsadm.c	/^static void version_exit(const int exit_status)$/;"	f	file:
+xtables_numeric_to_ipaddr	ipvsadm.c	/^struct in_addr *xtables_numeric_to_ipaddr(const char *dotted)$/;"	f
+xtables_numeric_to_ipmask	ipvsadm.c	/^struct in_addr *xtables_numeric_to_ipmask(const char *dotted)$/;"	f
+xtables_strtoui	ipvsadm.c	/^int xtables_strtoui(const char *s, char **end, unsigned int *value,$/;"	f
+xtables_strtoul	ipvsadm.c	/^int xtables_strtoul(const char *s, char **end, unsigned long *value,$/;"	f
+zone	ipvsadm.c	/^	ipvs_zone_t		zone;$/;"	m	struct:ipvs_command_entry	file:
