@@ -16,7 +16,8 @@
 
 	 FULLNAT的local address添加方式被覆盖，只能为某个zone添加laddr，不能为virtual service添加laddr
 		
-	**解决方法**：恢复原来为service添加local address的方式，另外增加两个接口为某个zone添加/删除local address，并相应的修改ipvsadm，-P/-Q恢复为service添加laddr，增加-U/-W是为zone添加laddr；keepalive暂时没有修改。
+	 **解决方法**：恢复原来为service添加local address的方式，另外增加两个接口为某个zone添加/删除local address，并相应的修改ipvsadm，-P/-Q恢复为service添加laddr，增加-U/-W是为zone添加laddr；keepalive暂时没有修改。
+
 	
 - **不使用FULLNAT补丁，直接在官方内核NAT基础上增加SNAT功能**
 
