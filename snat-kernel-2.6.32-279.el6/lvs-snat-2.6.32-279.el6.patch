@@ -1,0 +1,470 @@
+diff -uprN linux-2.6.32-279.el6/include/linux/ip_vs.h linux-2.6.32-279.el6.snat/include/linux/ip_vs.h
+--- linux-2.6.32-279.el6/include/linux/ip_vs.h	2012-06-13 17:40:35.000000000 -0400
++++ linux-2.6.32-279.el6.snat/include/linux/ip_vs.h	2013-09-18 23:30:35.163381767 -0400
+@@ -87,6 +87,7 @@
+ #define IP_VS_CONN_F_NO_CPORT	0x0800		/* no client port set yet */
+ #define IP_VS_CONN_F_TEMPLATE	0x1000		/* template, not connection */
+ #define IP_VS_CONN_F_ONE_PACKET	0x2000		/* forward only one packet */
++#define IP_VS_CONN_F_OUT_SNAT 0x010000
+ 
+ #define IP_VS_SCHEDNAME_MAXLEN	16
+ #define IP_VS_IFNAME_MAXLEN	16
+diff -uprN linux-2.6.32-279.el6/include/net/ip_vs.h linux-2.6.32-279.el6.snat/include/net/ip_vs.h
+--- linux-2.6.32-279.el6/include/net/ip_vs.h	2012-06-13 17:41:10.000000000 -0400
++++ linux-2.6.32-279.el6.snat/include/net/ip_vs.h	2013-09-18 23:30:18.154130065 -0400
+@@ -873,6 +873,8 @@ extern int ip_vs_dr_xmit
+ extern int ip_vs_icmp_xmit
+ (struct sk_buff *skb, struct ip_vs_conn *cp, struct ip_vs_protocol *pp, int offset);
+ extern void ip_vs_dst_reset(struct ip_vs_dest *dest);
++extern int ip_vs_out_snat_xmit
++(struct sk_buff *skb, struct ip_vs_conn *cp, struct ip_vs_protocol *pp);
+ 
+ #ifdef CONFIG_IP_VS_IPV6
+ extern int ip_vs_bypass_xmit_v6
+diff -uprN linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_core.c linux-2.6.32-279.el6.snat/net/netfilter/ipvs/ip_vs_core.c
+--- linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_core.c	2012-06-13 17:41:10.000000000 -0400
++++ linux-2.6.32-279.el6.snat/net/netfilter/ipvs/ip_vs_core.c	2013-09-18 23:32:11.897390876 -0400
+@@ -390,12 +390,45 @@ ip_vs_schedule(struct ip_vs_service *svc
+ 	if (pptr == NULL)
+ 		return NULL;
+ 
++  if (svc->addr.ip == 0 && svc->port == 0) {
++    dest = svc->scheduler->schedule(svc, skb);
++    if (dest == NULL) {
++      IP_VS_DBG(1, "Schedule: no dest found.\n");
++      return NULL;
++    }
++
++    /*
++     *    Create a connection entry.
++     */
++    cp = ip_vs_conn_new(svc->af, iph.protocol,
++            &iph.daddr, pptr[1],
++            &dest->addr, dest->port ? dest->port : pptr[0],
++            &iph.saddr, pptr[0],
++            ip_vs_onepacket_enabled(svc, &iph),
++            dest);
++    if (cp == NULL)
++      return NULL;
++
++    cp->packet_xmit = ip_vs_nat_xmit;
++
++    IP_VS_DBG_BUF(6, "Out SNAT Schedule fwd:%c c:%s:%u v:%s:%u "
++            "d:%s:%u conn->flags:%X conn->refcnt:%d\n",
++            ip_vs_fwd_tag(cp),
++            IP_VS_DBG_ADDR(svc->af, &cp->caddr), ntohs(cp->cport),
++            IP_VS_DBG_ADDR(svc->af, &cp->vaddr), ntohs(cp->vport),
++            IP_VS_DBG_ADDR(svc->af, &cp->daddr), ntohs(cp->dport),
++            cp->flags, atomic_read(&cp->refcnt));
++
++    ip_vs_conn_stats(cp, svc);
++    return cp;
++  }
++
+ 	/*
+ 	 *    Persistent service
+ 	 */
+ 	if (svc->flags & IP_VS_SVC_F_PERSISTENT)
+ 		return ip_vs_sched_persist(svc, skb, pptr);
+-
++  
+ 	/*
+ 	 *    Non-persistent service
+ 	 */
+@@ -908,19 +941,19 @@ handle_response(int af, struct sk_buff *
+ 	if (!skb_make_writable(skb, ihl))
+ 		goto drop;
+ 
+-	/* mangle the packet */
+-	if (pp->snat_handler && !pp->snat_handler(skb, pp, cp))
+-		goto drop;
++  /* mangle the packet */
++  if (pp->snat_handler && !pp->snat_handler(skb, pp, cp))
++    goto drop;
+ 
+ #ifdef CONFIG_IP_VS_IPV6
+-	if (af == AF_INET6)
+-		ipv6_hdr(skb)->saddr = cp->vaddr.in6;
+-	else
++  if (af == AF_INET6)
++    ipv6_hdr(skb)->saddr = cp->vaddr.in6;
++  else
+ #endif
+-	{
+-		ip_hdr(skb)->saddr = cp->vaddr.ip;
+-		ip_send_check(ip_hdr(skb));
+-	}
++  {
++    ip_hdr(skb)->saddr = cp->vaddr.ip;
++    ip_send_check(ip_hdr(skb));
++  }
+ 
+ 	/* For policy routing, packets originating from this
+ 	 * machine itself may be routed differently to packets
+@@ -967,6 +1000,7 @@ ip_vs_out(unsigned int hooknum, struct s
+ 	struct ip_vs_protocol *pp;
+ 	struct ip_vs_conn *cp;
+ 	int af;
++  int forward = 0;
+ 
+ 	EnterFunction(11);
+ 
+@@ -993,7 +1027,9 @@ ip_vs_out(unsigned int hooknum, struct s
+ 			if (related)
+ 				return verdict;
+ 			ip_vs_fill_iphdr(af, skb_network_header(skb), &iph);
+-		}
++		} else {
++      forward = 1;
++    }
+ 
+ 	pp = ip_vs_proto_get(iph.protocol);
+ 	if (unlikely(!pp))
+@@ -1025,53 +1061,108 @@ ip_vs_out(unsigned int hooknum, struct s
+ 	 */
+ 	cp = pp->conn_out_get(af, skb, pp, &iph, iph.len, 0);
+ 
+-	if (unlikely(!cp)) {
+-		if (sysctl_ip_vs_nat_icmp_send &&
+-		    (pp->protocol == IPPROTO_TCP ||
+-		     pp->protocol == IPPROTO_UDP ||
+-		     pp->protocol == IPPROTO_SCTP)) {
+-			__be16 _ports[2], *pptr;
+-
+-			pptr = skb_header_pointer(skb, iph.len,
+-						  sizeof(_ports), _ports);
+-			if (pptr == NULL)
+-				return NF_ACCEPT;	/* Not for me */
+-			if (ip_vs_lookup_real_service(af, iph.protocol,
+-						      &iph.saddr,
+-						      pptr[0])) {
+-				/*
+-				 * Notify the real server: there is no
+-				 * existing entry if it is not RST
+-				 * packet or not TCP packet.
+-				 */
+-				if ((iph.protocol != IPPROTO_TCP &&
+-				     iph.protocol != IPPROTO_SCTP)
+-				     || ((iph.protocol == IPPROTO_TCP
+-					  && !is_tcp_reset(skb, iph.len))
+-					 || (iph.protocol == IPPROTO_SCTP
+-						&& !is_sctp_abort(skb,
+-							iph.len)))) {
++  if (cp && cp->dest && cp->dest->svc &&
++      (cp->dest->svc->addr.ip != 0 || cp->dest->svc->port != 0)) {
++    forward = 0;
++  }
++
++  if (forward) {
++    int ret;
++    int pkts;
++
++EnterFunction(11);
++       
++    if (!cp) {
++      int v;
++
++      if (!pp->conn_schedule(af | IP_VS_CONN_F_OUT_SNAT, skb, pp, &v, &cp))
++        return v;
++      
++      if (unlikely(!cp)) {
++        /* sorry, all this trouble for a no-hit :) */
++        IP_VS_DBG_PKT(12, pp, skb, 0,
++                "packet continues traversal as normal");
++        return NF_ACCEPT;
++      }
++    }
++
++    IP_VS_DBG_PKT(11, pp, skb, 0, "Outgoing packet");
++
++    ip_vs_in_stats(cp, skb);
++
++    ip_vs_set_state(cp, IP_VS_DIR_OUTPUT, skb, pp);
++    ret = ip_vs_out_snat_xmit(skb, cp, pp); 
++
++    pkts = atomic_add_return(1, &cp->in_pkts);
++
++    if (af == AF_INET &&
++	    (ip_vs_sync_state & IP_VS_STATE_MASTER) &&
++	    (((cp->protocol != IPPROTO_TCP ||
++	       cp->state == IP_VS_TCP_S_ESTABLISHED) &&
++	      (pkts % sysctl_ip_vs_sync_threshold[1]
++	       == sysctl_ip_vs_sync_threshold[0])) ||
++	     ((cp->protocol == IPPROTO_TCP) && (cp->old_state != cp->state) &&
++	      ((cp->state == IP_VS_TCP_S_FIN_WAIT) ||
++	       (cp->state == IP_VS_TCP_S_CLOSE_WAIT) ||
++	       (cp->state == IP_VS_TCP_S_TIME_WAIT)))))
++		ip_vs_sync_conn(cp);
++
++    cp->old_state = cp->state;
++
++    ip_vs_conn_put(cp);
++    return ret;
++
++  } else {
++
++    if (unlikely(!cp)) {
++      if (sysctl_ip_vs_nat_icmp_send &&
++          (pp->protocol == IPPROTO_TCP ||
++           pp->protocol == IPPROTO_UDP ||
++           pp->protocol == IPPROTO_SCTP)) {
++        __be16 _ports[2], *pptr;
++
++        pptr = skb_header_pointer(skb, iph.len,
++                sizeof(_ports), _ports);
++        if (pptr == NULL)
++          return NF_ACCEPT;	/* Not for me */
++        if (ip_vs_lookup_real_service(af, iph.protocol,
++                    &iph.saddr,
++                    pptr[0])) {
++          /*
++           * Notify the real server: there is no
++           * existing entry if it is not RST
++           * packet or not TCP packet.
++           */
++          if ((iph.protocol != IPPROTO_TCP &&
++               iph.protocol != IPPROTO_SCTP)
++               || ((iph.protocol == IPPROTO_TCP
++              && !is_tcp_reset(skb, iph.len))
++             || (iph.protocol == IPPROTO_SCTP
++              && !is_sctp_abort(skb,
++                iph.len)))) {
+ #ifdef CONFIG_IP_VS_IPV6
+-					if (af == AF_INET6)
+-						icmpv6_send(skb,
+-							    ICMPV6_DEST_UNREACH,
+-							    ICMPV6_PORT_UNREACH,
+-							    0, skb->dev);
+-					else
++            if (af == AF_INET6)
++              icmpv6_send(skb,
++                    ICMPV6_DEST_UNREACH,
++                    ICMPV6_PORT_UNREACH,
++                    0, skb->dev);
++            else
+ #endif
+-						icmp_send(skb,
+-							  ICMP_DEST_UNREACH,
+-							  ICMP_PORT_UNREACH, 0);
+-					return NF_DROP;
+-				}
+-			}
+-		}
+-		IP_VS_DBG_PKT(12, pp, skb, 0,
+-			      "packet continues traversal as normal");
+-		return NF_ACCEPT;
+-	}
+-
+-	return handle_response(af, skb, pp, cp, iph.len);
++              icmp_send(skb,
++                  ICMP_DEST_UNREACH,
++                  ICMP_PORT_UNREACH, 0);
++            return NF_DROP;
++          }
++        }
++      }
++
++      IP_VS_DBG_PKT(12, pp, skb, 0,
++              "packet continues traversal as normal");
++      return NF_ACCEPT;
++    }
++    
++	  return handle_response(af, skb, pp, cp, iph.len);
++  }
+ }
+ 
+ 
+diff -uprN linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.32-279.el6.snat/net/netfilter/ipvs/ip_vs_ctl.c
+--- linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_ctl.c	2012-06-13 17:41:10.000000000 -0400
++++ linux-2.6.32-279.el6.snat/net/netfilter/ipvs/ip_vs_ctl.c	2013-09-18 23:32:12.469783622 -0400
+@@ -321,6 +321,11 @@ ip_vs_svc_hashkey(int af, unsigned proto
+ 			    addr->ip6[2]^addr->ip6[3];
+ #endif
+ 
++  if (af & IP_VS_CONN_F_OUT_SNAT) {
++    addr_fold = 0;
++    porth = 0;
++  }
++
+ 	return (proto^ntohl(addr_fold)^(porth>>IP_VS_SVC_TAB_BITS)^porth)
+ 		& IP_VS_SVC_TAB_MASK;
+ }
+@@ -405,20 +410,35 @@ __ip_vs_service_get(int af, __u16 protoc
+ {
+ 	unsigned hash;
+ 	struct ip_vs_service *svc;
++  int out_snat = af & IP_VS_CONN_F_OUT_SNAT;
++  af &= ~IP_VS_CONN_F_OUT_SNAT;
+ 
+ 	/* Check for "full" addressed entries */
+-	hash = ip_vs_svc_hashkey(af, protocol, vaddr, vport);
++	hash = ip_vs_svc_hashkey(af|out_snat, protocol, vaddr, vport);
+ 
+-	list_for_each_entry(svc, &ip_vs_svc_table[hash], s_list){
+-		if ((svc->af == af)
+-		    && ip_vs_addr_equal(af, &svc->addr, vaddr)
+-		    && (svc->port == vport)
+-		    && (svc->protocol == protocol)) {
+-			/* HIT */
+-			atomic_inc(&svc->usecnt);
+-			return svc;
+-		}
+-	}
++  if (out_snat) {
++    list_for_each_entry(svc, &ip_vs_svc_table[hash], s_list){
++      if ((svc->af == af)
++          && (svc->addr.ip == 0)
++          && (svc->port == 0)
++          && (svc->protocol == protocol)) {
++        /* HIT */
++        atomic_inc(&svc->usecnt);
++        return svc;
++      }
++    }
++  } else {
++    list_for_each_entry(svc, &ip_vs_svc_table[hash], s_list){
++      if ((svc->af == af)
++          && ip_vs_addr_equal(af, &svc->addr, vaddr)
++          && (svc->port == vport)
++          && (svc->protocol == protocol)) {
++        /* HIT */
++        atomic_inc(&svc->usecnt);
++        return svc;
++      }
++    }
++  }
+ 
+ 	return NULL;
+ }
+diff -uprN linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_xmit.c linux-2.6.32-279.el6.snat/net/netfilter/ipvs/ip_vs_xmit.c
+--- linux-2.6.32-279.el6/net/netfilter/ipvs/ip_vs_xmit.c	2009-12-02 22:51:21.000000000 -0500
++++ linux-2.6.32-279.el6.snat/net/netfilter/ipvs/ip_vs_xmit.c	2013-09-18 23:32:23.501326611 -0400
+@@ -115,6 +115,27 @@ __ip_vs_get_out_rt(struct ip_vs_conn *cp
+ 	return rt;
+ }
+ 
++struct rtable *ip_vs_get_rt(union nf_inet_addr *addr, u32 rtos)
++{
++	struct rtable *rt;	/* Route to the other host */
++
++	struct flowi fl = {
++		.oif = 0,
++		.nl_u = {
++			 .ip4_u = {
++				   .daddr = addr->ip,
++				   .saddr = 0,
++				   .tos = rtos,}},
++	};
++
++	if (ip_route_output_key(&init_net, &rt, &fl)) {
++		IP_VS_DBG_RL("ip_route_output error, dest: %pI4\n", &addr->ip);
++		return NULL;
++	}
++
++	return rt;
++}
++
+ #ifdef CONFIG_IP_VS_IPV6
+ static struct rt6_info *
+ __ip_vs_get_out_rt_v6(struct ip_vs_conn *cp)
+@@ -371,8 +392,14 @@ ip_vs_nat_xmit(struct sk_buff *skb, stru
+ 		IP_VS_DBG(10, "filled cport=%d\n", ntohs(*p));
+ 	}
+ 
+-	if (!(rt = __ip_vs_get_out_rt(cp, RT_TOS(iph->tos))))
+-		goto tx_error_icmp;
++  if (IP_VS_FWD_METHOD(cp) == IP_VS_CONN_F_LOCALNODE) {
++    /* out snat response */
++    if (!(rt = ip_vs_get_rt(&cp->daddr, RT_TOS(iph->tos))))
++      goto tx_error_icmp; 
++  } else {
++    if (!(rt = __ip_vs_get_out_rt(cp, RT_TOS(iph->tos))))
++      goto tx_error_icmp;
++  }
+ 
+ 	/* MTU checking */
+ 	mtu = dst_mtu(&rt->u.dst);
+@@ -394,13 +421,13 @@ ip_vs_nat_xmit(struct sk_buff *skb, stru
+ 	skb_dst_drop(skb);
+ 	skb_dst_set(skb, &rt->u.dst);
+ 
+-	/* mangle the packet */
+-	if (pp->dnat_handler && !pp->dnat_handler(skb, pp, cp))
+-		goto tx_error;
+-	ip_hdr(skb)->daddr = cp->daddr.ip;
+-	ip_send_check(ip_hdr(skb));
++  /* mangle the packet */
++  if (pp->dnat_handler && !pp->dnat_handler(skb, pp, cp))
++    goto tx_error;
++  ip_hdr(skb)->daddr = cp->daddr.ip;
++  ip_send_check(ip_hdr(skb));
+ 
+-	IP_VS_DBG_PKT(10, pp, skb, 0, "After DNAT");
++  IP_VS_DBG_PKT(10, pp, skb, 0, "After DNAT");
+ 
+ 	/* FIXME: when application helper enlarges the packet and the length
+ 	   is larger than the MTU of outgoing device, there will be still
+@@ -1003,4 +1030,63 @@ tx_error_put:
+ 	dst_release(&rt->u.dst);
+ 	goto tx_error;
+ }
++
++/* Response transmit to client
++ * Used for OUT SNAT.
++ */
++int
++ip_vs_out_snat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
++	       struct ip_vs_protocol *pp) {
++  struct rtable *rt;	/* Route to the other host */
++	int mtu;
++	struct iphdr *iph = ip_hdr(skb);
++
++	/* lookup route table */
++	if (!(rt = ip_vs_get_rt(&cp->caddr, RT_TOS(iph->tos))))
++		goto tx_error_icmp;
++
++  /* MTU checking */
++	mtu = dst_mtu(&rt->u.dst);
++	if ((skb->len > mtu) && (iph->frag_off & htons(IP_DF))) {
++		ip_rt_put(rt);
++		icmp_send(skb, ICMP_DEST_UNREACH, ICMP_FRAG_NEEDED, htonl(mtu));
++		IP_VS_DBG_RL_PKT(0, pp, skb, 0,
++				 "handle_fnat_response(): frag needed for");
++		goto tx_error;
++	}
++
++	/* copy-on-write the packet before mangling it */
++	if (!skb_make_writable(skb, sizeof(struct iphdr)))
++		goto tx_error_put;
++
++	if (skb_cow(skb, rt->u.dst.dev->hard_header_len))
++		goto tx_error_put;
++
++	/* drop old route */
++	skb_dst_drop(skb);
++	skb_dst_set(skb, &rt->u.dst);
++
++	/* mangle the packet */
++	if (pp->snat_handler && !pp->snat_handler(skb, pp, cp))
++		goto tx_error;
++
++	ip_hdr(skb)->saddr = cp->vaddr.ip;
++	ip_send_check(ip_hdr(skb));
++
++	/* Another hack: avoid icmp_send in ip_fragment */
++	skb->local_df = 1;
++
++	IP_VS_XMIT(PF_INET, skb, rt);
++
++	return NF_STOLEN;
++
++tx_error_icmp:
++	dst_link_failure(skb);
++tx_error:
++	kfree_skb(skb);
++	return NF_STOLEN;
++tx_error_put:
++	ip_rt_put(rt);
++	goto tx_error;
++}
+ #endif
