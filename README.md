@@ -9,14 +9,14 @@
  
  	在forword钩子函数ip_vs _out中对已经存在的连接，没有判断是否NAT的连接，导致NAT转发出错
 
-	**解决方法**： 因为dsnat是通过添加一个0.0.0.0:0的service来实现的，在做dsnat之前，判断svc->addr.ip和svc->port是否为，或者判断dest->addr.ip == IP_VS_DSNAT_RS_ADDR
+	**解决方法**： 因为dsnat是通过添加一个0.0.0.0:0的service来实现的，在做dsnat之前，判断svc->addr.ip和svc->port是否为0，或者判断dest->addr.ip == IP_VS_DSNAT_RS_ADDR
 
  - **修复跟FULLNAT的local address的冲突问题**
 
 
 	 FULLNAT的local address添加方式被覆盖，只能为某个zone添加laddr，不能为virtual service添加laddr
 		
-	 **解决方法**：恢复原来为service添加local address的方式，另外增加两个接口为某个zone添加/删除local address，并相应的修改ipvsadm，-P/-Q恢复为service添加laddr，增加-U/-W是为zone添加laddr；keepalive暂时没有修改。
+	 **解决方法**：恢复原来为service添加和使用local address的方式，另外增加两个接口为某个zone添加/删除local address，并相应的修改ipvsadm，-P/-Q恢复为service添加laddr，增加-U/-W是为zone添加laddr；keepalived暂时没有修改。
 
 	
 - **不使用FULLNAT补丁，直接在官方内核NAT基础上增加SNAT功能**
@@ -60,9 +60,9 @@
 	#添加0.0.0.0:0的虚拟服务,加上-p参数
 	#因为只有persistent service才能添加端口为0的询服务，而我懒得修改ipvsadm代码了
 	ipvsadm -A -t 0.0.0.0:0 -s rr -p 10
-	#添加转换后的源地址，这里直接使用添加real server参数，端口为0
-	#如下，内网访问外网时，源地址就会被改为10.0.5.100
+	#添加转换后的源地址，这里直接使用添加real server参数，端口为0，如下
 	/sbin/ipvsadm -a -t 0.0.0.0:0 -r 10.0.5.100:0 -m
+	#内网访问外网时，源地址就会被改为10.0.5.100
 	
     
 
