@@ -58,7 +58,7 @@
 ###ipvsadm配置示例
 	#直接用官方的ipvsadm即可
 	#添加0.0.0.0:0的虚拟服务,加上-p参数
-	#因为只有persistent service才能添加端口为0的询服务，而我懒得修改ipvsadm代码了
+	#因为只有persistent service才能添加端口为0的服务，而我懒得修改ipvsadm代码了
 	ipvsadm -A -t 0.0.0.0:0 -s rr -p 10
 	#添加转换后的源地址，这里直接使用添加real server参数，端口为0，如下
 	/sbin/ipvsadm -a -t 0.0.0.0:0 -r 10.0.5.100:0 -m
