@@ -5,10 +5,13 @@
 
     a) 使用iptables的SNAT，功能完善稳定，性能较差
     
-    b) 基于lvs-v2开发的SNAT网关，功能简单，多isp出口不适用，性能较好
+    b) 基于lvs-v2开发的SNAT网关，功能简单，多isp出口不适用，不支持源ip匹配，不支持icmp，性能较好
     
 3.  snat-gateway-lvs-v2.patch在阿里lvs-v2的fullnat基础上实现了简单的snat网关
 4.  iptable-lbg-CHROUTE-lvs-v2.patch在阿里lvs-v2内核增加了iptables扩展，实现redirect nexthop功能
+
+#####To Do
+出于提供性能的考虑，后续会逐渐完善lvs snat网关功能，增加对icmp支持，源地址匹配，出入口网卡匹配等功能
 
 
 ##基于lvs-v2的snat网关安装方法
