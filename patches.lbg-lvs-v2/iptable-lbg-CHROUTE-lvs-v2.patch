@@ -1,0 +1,897 @@
+From 25449aa1ab855e7114291667c3b8bee421298f58 Mon Sep 17 00:00:00 2001
+From: root <root@lvs2.(none)>
+Date: Tue, 25 Feb 2014 10:58:42 +0800
+Subject: [PATCH 2/2] add lbg code
+
+---
+ kernel/include/linux/netfilter_ipv4/ipt_CHROUTE.h  |    9 +
+ kernel/include/linux/netfilter_ipv4/iptable_lbg.h  |   41 +++
+ kernel/include/net/netfilter/nf_conntrack_extend.h |    2 +
+ kernel/include/net/netfilter/nf_nat.h              |    1 +
+ kernel/net/ipv4/netfilter/Makefile                 |    3 +
+ kernel/net/ipv4/netfilter/ipt_CHROUTE.c            |  355 ++++++++++++++++++
+ kernel/net/ipv4/netfilter/iptable_lbg.c            |  378 ++++++++++++++++++++
+ kernel/net/ipv4/netfilter/nf_nat_core.c            |   13 +
+ 8 files changed, 802 insertions(+), 0 deletions(-)
+ create mode 100644 kernel/include/linux/netfilter_ipv4/ipt_CHROUTE.h
+ create mode 100644 kernel/include/linux/netfilter_ipv4/iptable_lbg.h
+ create mode 100644 kernel/net/ipv4/netfilter/ipt_CHROUTE.c
+ create mode 100644 kernel/net/ipv4/netfilter/iptable_lbg.c
+
+diff --git a/kernel/include/linux/netfilter_ipv4/ipt_CHROUTE.h b/kernel/include/linux/netfilter_ipv4/ipt_CHROUTE.h
+new file mode 100644
+index 0000000..c9c19e2
+--- /dev/null
++++ b/kernel/include/linux/netfilter_ipv4/ipt_CHROUTE.h
+@@ -0,0 +1,9 @@
++#ifndef IPT_LBG_CHROUTE_H
++#define IPT_LBG_CHROUTE_H
++
++struct ipt_chroute_info {
++  __be32 new_gw;
++  __be32 old_gw;
++};
++
++#endif /* IPT_LBG_CHROUTE_H */
+diff --git a/kernel/include/linux/netfilter_ipv4/iptable_lbg.h b/kernel/include/linux/netfilter_ipv4/iptable_lbg.h
+new file mode 100644
+index 0000000..084d766
+--- /dev/null
++++ b/kernel/include/linux/netfilter_ipv4/iptable_lbg.h
+@@ -0,0 +1,41 @@
++#ifndef IPT_IPTABLE_LBG_H
++#define IPT_IPTABLE_LBG_H
++
++#include <net/netfilter/nf_conntrack_extend.h>
++
++enum nf_conn_lbg_status {
++  NFC_LBG_CHROUTE_BIT = 0,
++  NFC_LBG_CHROUTE = (1 << NFC_LBG_CHROUTE_BIT),
++
++  /* Already chroute in pre_routing */
++  NFC_LBG_PRE_CHROUTE_BIT = 1,
++  NFC_LBG_PRE_CHROUTE = (1 << NFC_LBG_PRE_CHROUTE_BIT),
++};
++
++struct nf_conn;
++struct net_device;
++
++/* The structure embedded in the conntrack structure ext. */
++struct nf_conn_lbg
++{
++  struct nf_conn *ct; 
++  int old_out_idx;
++  int new_out_idx; 
++  __be32 new_gw;
++  unsigned long status;
++};
++
++static inline struct nf_conn_lbg *nfct_lbg(const struct nf_conn *ct)
++{
++  return nf_ct_ext_find(ct, NF_CT_EXT_LBG);
++}
++
++static inline int nf_lbg_chroute_initialized(struct nf_conn_lbg *lbg_ext) {
++  return test_bit(NFC_LBG_CHROUTE_BIT, &lbg_ext->status);
++}
++
++static inline int nf_lbg_pre_chroute(struct nf_conn_lbg *lbg_ext) {
++  return test_bit(NFC_LBG_PRE_CHROUTE_BIT, &lbg_ext->status);
++}
++
++#endif /* IPT_IPTABLE_LBG_H */
+diff --git a/kernel/include/net/netfilter/nf_conntrack_extend.h b/kernel/include/net/netfilter/nf_conntrack_extend.h
+index 7f8fc5d..2058ed9 100644
+--- a/kernel/include/net/netfilter/nf_conntrack_extend.h
++++ b/kernel/include/net/netfilter/nf_conntrack_extend.h
+@@ -9,6 +9,7 @@ enum nf_ct_ext_id
+ 	NF_CT_EXT_NAT,
+ 	NF_CT_EXT_ACCT,
+ 	NF_CT_EXT_ECACHE,
++  NF_CT_EXT_LBG,
+ 	NF_CT_EXT_NUM,
+ };
+ 
+@@ -16,6 +17,7 @@ enum nf_ct_ext_id
+ #define NF_CT_EXT_NAT_TYPE struct nf_conn_nat
+ #define NF_CT_EXT_ACCT_TYPE struct nf_conn_counter
+ #define NF_CT_EXT_ECACHE_TYPE struct nf_conntrack_ecache
++#define NF_CT_EXT_LBG_TYPE struct nf_conn_lbg
+ 
+ /* Extensions: optional stuff which isn't permanently in struct. */
+ struct nf_ct_ext {
+diff --git a/kernel/include/net/netfilter/nf_nat.h b/kernel/include/net/netfilter/nf_nat.h
+index 8df0b7f..4bb84a3 100644
+--- a/kernel/include/net/netfilter/nf_nat.h
++++ b/kernel/include/net/netfilter/nf_nat.h
+@@ -19,6 +19,7 @@ enum nf_nat_manip_type
+ #define IP_NAT_RANGE_PROTO_SPECIFIED 2
+ #define IP_NAT_RANGE_PROTO_RANDOM 4
+ #define IP_NAT_RANGE_PERSISTENT 8
++#define IP_NAT_RANGE_RANDOM_IP 16
+ 
+ /* NAT sequence number modifications */
+ struct nf_nat_seq {
+diff --git a/kernel/net/ipv4/netfilter/Makefile b/kernel/net/ipv4/netfilter/Makefile
+index 4811159..0e65378 100644
+--- a/kernel/net/ipv4/netfilter/Makefile
++++ b/kernel/net/ipv4/netfilter/Makefile
+@@ -71,3 +71,6 @@ obj-$(CONFIG_IP_NF_ARPFILTER) += arptable_filter.o
+ 
+ obj-$(CONFIG_IP_NF_QUEUE) += ip_queue.o
+ 
++#lbg
++obj-m += iptable_lbg.o
++obj-m += ipt_CHROUTE.o
+diff --git a/kernel/net/ipv4/netfilter/ipt_CHROUTE.c b/kernel/net/ipv4/netfilter/ipt_CHROUTE.c
+new file mode 100644
+index 0000000..aaf74f8
+--- /dev/null
++++ b/kernel/net/ipv4/netfilter/ipt_CHROUTE.c
+@@ -0,0 +1,355 @@
++/*
++ *  Change the next hop of an skb
++ * (C) 2014 Li Jian <lijian2@ucweb.com>
++ *
++ *	This program is free software; you can redistribute it and/or modify
++ *	it under the terms of the GNU General Public License version 2 as
++ *	published by the Free Software Foundation.
++ */
++
++#include <linux/module.h>
++#include <linux/skbuff.h>
++#include <linux/ip.h>
++#include <linux/ipv6.h>
++
++#include <net/dsfield.h>
++#include <net/ip.h>
++#include <net/tcp.h>
++#include <net/udp.h>
++#include <net/icmp.h>		/* for icmp_send */
++#include <net/route.h>
++#include <net/netfilter/nf_conntrack.h>
++
++#include <linux/netfilter.h>
++#include <linux/netfilter_ipv4.h>
++
++#include <linux/netfilter/x_tables.h>
++
++#include "linux/netfilter_ipv4/ipt_CHROUTE.h"
++#include "linux/netfilter_ipv4/iptable_lbg.h"
++
++MODULE_LICENSE("GPL");
++MODULE_AUTHOR("Li Jian <lijian2@ucweb.com>");
++MODULE_DESCRIPTION("Xtables: packet nexthop change");
++
++struct rtable *chroute_get_out_rt(struct net *net, __be32 daddr, u32 rtos)
++{
++	struct rtable *rt;	/* Route to the other host */
++
++	struct flowi fl = {
++		.oif = 0,
++		.nl_u = {
++			 .ip4_u = {
++				   .daddr = daddr,
++				   .saddr = 0,
++				   .tos = rtos,}},
++	};
++
++	if (ip_route_output_key(net, &rt, &fl)) {
++		pr_debug("ip_route_output error, dest: %pI4\n", &daddr);
++		return NULL;
++	}
++
++	return rt;
++}
++
++/*
++static unsigned int
++chroute_pre_routing(struct sk_buff *skb, const struct xt_target_param *par)
++{
++  const struct ipt_chroute_info *chrouteinfo = par->targinfo;
++  struct iphdr *iph = ip_hdr(skb);
++  struct rtable *rt = (struct rtable *)skb_dst(skb);
++   struct nf_conn *ct;
++  enum ip_conntrack_info ctinfo;
++  struct nf_conn_lbg *lbg_ext;
++  int mtu;
++
++  if (!chrouteinfo || !chrouteinfo->new_gw) {
++    return NF_ACCEPT;
++  }
++
++  ct = nf_ct_get(skb, &ctinfo);
++  if (!ct)
++    return NF_ACCEPT;
++
++  lbg_ext = nfct_lbg(ct);
++  if (!lbg_ext) {
++    if (nf_ct_is_confirmed(ct))
++      return NF_ACCEPT;
++    lbg_ext = nf_ct_ext_add(ct, NF_CT_EXT_LBG, GFP_ATOMIC); 
++    if (lbg_ext == NULL) {
++      pr_debug("failed to add LBG extension\n");
++      return NF_ACCEPT;
++    }
++  }
++
++  if (rt && rt->rt_gateway == chrouteinfo->new_gw)
++    return NF_ACCEPT;
++
++  if (!(rt = chroute_get_out_rt(dev_net(skb->dev),
++        chrouteinfo->new_gw, RT_TOS(iph->tos))))
++    goto tx_error_icmp;  
++
++  mtu = dst_mtu(&rt->u.dst);
++  if (skb->len > mtu) {
++    dst_release(&rt->u.dst);
++    pr_debug("%s(): frag needed\n", __func__);
++    goto tx_error;
++  }
++
++  if (!skb_make_writable(skb, sizeof(struct iphdr)))
++    goto tx_error_put;
++
++  if (skb_cow(skb, rt->u.dst.dev->hard_header_len))
++    goto tx_error_put;
++
++  skb_dst_drop(skb);
++  skb_dst_set(skb, &rt->u.dst);
++ 
++  lbg_ext->ct = ct;
++  lbg_ext->new_out_idx = rt->u.dst.dev->ifindex;
++  lbg_ext->old_out_idx = -1; 
++  lbg_ext->new_gw = rt->rt_gateway;
++  set_bit(NFC_LBG_CHROUTE_BIT, &lbg_ext->status);
++
++  pr_debug("preCHROUTE2 new_gw:%pI4 in:%s saddr:%pI4\n",
++    &rt->rt_gateway, par->in?par->in->name:"null", &iph->saddr);
++
++  skb->local_df = 1;
++  skb_forward_csum(skb);  
++  NF_HOOK(PF_INET, NF_INET_LOCAL_OUT, (skb), NULL,	(rt)->u.dst.dev, dst_output);
++  return NF_STOLEN;
++
++tx_error_icmp:
++	dst_link_failure(skb);
++tx_error:
++	kfree_skb(skb);
++	return NF_STOLEN;
++tx_error_put:
++	dst_release(&rt->u.dst);
++	goto tx_error;
++}
++*/
++
++/*
++static unsigned int
++chroute_pre_routing(struct sk_buff *skb, const struct xt_target_param *par)
++{
++  const struct ipt_chroute_info *chrouteinfo = par->targinfo;
++  struct iphdr *iph = ip_hdr(skb);
++  struct rtable *rt = (struct rtable *)skb_dst(skb);
++   struct nf_conn *ct;
++  enum ip_conntrack_info ctinfo;
++  struct nf_conn_lbg *lbg_ext;
++  int err;
++
++  if (!chrouteinfo || !chrouteinfo->new_gw) {
++    goto done;
++  }
++
++  ct = nf_ct_get(skb, &ctinfo);
++  if (!ct)
++    goto done;
++
++  lbg_ext = nfct_lbg(ct);
++  if (!lbg_ext) {
++    if (nf_ct_is_confirmed(ct))
++      return NF_ACCEPT;
++    lbg_ext = nf_ct_ext_add(ct, NF_CT_EXT_LBG, GFP_ATOMIC); 
++    if (lbg_ext == NULL) {
++      pr_debug("failed to add LBG extension\n");
++      goto done;
++    }
++  }
++
++  if (rt && rt->rt_gateway == chrouteinfo->new_gw)
++    goto done;
++
++  if (rt)
++    skb_dst_drop(skb);
++
++  err = ip_route_input(skb, chrouteinfo->new_gw,
++      iph->saddr, iph->tos, skb->dev);
++  if (err) {
++    pr_debug("CHROUTE ip_route_input err:%d\n", err);
++    goto drop;
++  }
++
++  
++ 
++  rt = (struct rtable *)skb_dst(skb); 
++  if (rt) {
++    lbg_ext->ct = ct;
++    lbg_ext->new_out_idx = rt->u.dst.dev->ifindex;
++    lbg_ext->old_out_idx = -1; 
++    lbg_ext->new_gw = rt->rt_gateway;
++    set_bit(NFC_LBG_CHROUTE_BIT, &lbg_ext->status);
++
++    pr_debug("preCHROUTE new_gw:%pI4 in:%s saddr:%pI4\n",
++      &rt->rt_gateway, par->in?par->in->name:"null", &iph->saddr);
++  }
++
++done:
++  return NF_ACCEPT;
++
++drop:
++  return NF_DROP;
++}
++*/
++
++static unsigned int
++chroute_forward(struct sk_buff *skb, const struct xt_target_param *par)
++{
++  const struct ipt_chroute_info *chrouteinfo = par->targinfo;
++  struct iphdr *iph = ip_hdr(skb);
++  struct rtable *rt = (struct rtable *)skb_dst(skb);
++  struct nf_conn *ct;
++  enum ip_conntrack_info ctinfo;
++  struct nf_conn_lbg *lbg_ext;
++  int mtu;
++  __be32 old_gw = 0;
++  
++  if (!chrouteinfo || !chrouteinfo->new_gw)
++    return NF_ACCEPT;;
++
++  if (!skb->dev)
++    return NF_ACCEPT;
++
++  ct = nf_ct_get(skb, &ctinfo);
++
++  NF_CT_ASSERT(ct && ctinfo == IP_CT_NEW);
++
++  lbg_ext = nfct_lbg(ct);
++  if (!lbg_ext) {
++    if (nf_ct_is_confirmed(ct))
++      return NF_ACCEPT;
++    lbg_ext = nf_ct_ext_add(ct, NF_CT_EXT_LBG, GFP_ATOMIC); 
++    if (lbg_ext == NULL) {
++      pr_debug("failed to add LBG extension\n");
++      return NF_ACCEPT;
++    }
++  }
++  
++  if (rt) {
++    old_gw = rt->rt_gateway;
++    if (old_gw == chrouteinfo->new_gw)
++      goto done;
++
++    if (chrouteinfo->old_gw && chrouteinfo->old_gw != old_gw)
++      goto done;
++
++    lbg_ext->old_out_idx = rt->u.dst.dev->ifindex;
++  }
++  
++  if (!(rt = chroute_get_out_rt(dev_net(skb->dev),
++        chrouteinfo->new_gw, RT_TOS(iph->tos))))
++    goto tx_error_icmp;
++  
++  if (!rt->rt_gateway || rt->rt_gateway == old_gw) {
++    dst_release(&rt->u.dst);
++    goto done;
++  }
++  
++  mtu = dst_mtu(&rt->u.dst);
++  if (skb->len > mtu) {
++    dst_release(&rt->u.dst);
++    pr_debug("%s(): frag needed\n", __func__);
++    goto tx_error;
++  }
++
++  if (!skb_make_writable(skb, sizeof(struct iphdr)))
++    goto tx_error_put;
++
++  if (skb_cow(skb, rt->u.dst.dev->hard_header_len))
++    goto tx_error_put;
++
++  skb_dst_drop(skb);
++  skb_dst_set(skb, &rt->u.dst);
++
++  lbg_ext->ct = ct;
++  lbg_ext->new_out_idx = rt->u.dst.dev->ifindex;
++  lbg_ext->new_gw = rt->rt_gateway;
++  set_bit(NFC_LBG_CHROUTE_BIT, &lbg_ext->status);
++
++  pr_debug("CHROUTE %p from %pI4 to %pI4 saddr %pI4 ctinfo %d\n",
++    ct, &old_gw, &rt->rt_gateway, &iph->saddr, ctinfo);
++
++done:
++  /*
++  pr_debug("CHROUTE %p forward done oldgw:%pI4 newgw:%pI4 moldgw:%pI4\n",
++    ct, &old_gw, &chrouteinfo->new_gw, &chrouteinfo->old_gw);
++  */
++  return NF_ACCEPT;
++
++tx_error_icmp:
++	dst_link_failure(skb);
++tx_error:
++	kfree_skb(skb);
++	return NF_STOLEN;
++tx_error_put:
++	dst_release(&rt->u.dst);
++	goto tx_error;
++}
++
++static unsigned int
++chroute_tg(struct sk_buff *skb, const struct xt_target_param *par)
++{
++  const struct ipt_chroute_info *chrouteinfo = par->targinfo;
++ 
++  if (!chrouteinfo)
++    goto done;
++
++  switch (par->hooknum) {
++  case NF_INET_PRE_ROUTING:
++    break;
++    //return chroute_pre_routing(skb, par);
++
++  case NF_INET_FORWARD:
++    return chroute_forward(skb, par);
++
++  default:
++    break;
++  }
++
++done:
++  return NF_ACCEPT;
++}
++
++static bool chroute_check(const struct xt_tgchk_param *par) {
++  const struct ipt_chroute_info *chrouteinfo = par->targinfo;
++  
++  if (!chrouteinfo || !chrouteinfo->new_gw)
++    return false;
++  
++  return true;
++}
++
++#define CHROUTE_VALID_HOOKS ((1 << NF_INET_PRE_ROUTING) | \
++			 (1 << NF_INET_FORWARD))
++
++static struct xt_target chroute_tg_reg[] __read_mostly = {
++  {
++    .name		= "CHROUTE",
++    .target		= chroute_tg,
++    .targetsize	= sizeof(struct ipt_chroute_info),
++    .table		= "lbg",
++    .hooks		= CHROUTE_VALID_HOOKS,
++    .checkentry	= chroute_check,
++    .family		= AF_INET,
++    .me		= THIS_MODULE, 
++  },
++};
++
++static int __init lbg_chroute_init(void)
++{
++	return xt_register_targets(chroute_tg_reg, ARRAY_SIZE(chroute_tg_reg));
++}
++
++static void __exit lbg_chroute_exit(void)
++{
++	xt_unregister_targets(chroute_tg_reg, ARRAY_SIZE(chroute_tg_reg));
++}
++
++module_init(lbg_chroute_init);
++module_exit(lbg_chroute_exit);
+diff --git a/kernel/net/ipv4/netfilter/iptable_lbg.c b/kernel/net/ipv4/netfilter/iptable_lbg.c
+new file mode 100644
+index 0000000..5ca2d89
+--- /dev/null
++++ b/kernel/net/ipv4/netfilter/iptable_lbg.c
+@@ -0,0 +1,378 @@
++/*
++ *  LBG table
++ * (C) 2014 Li Jian <lijian2@ucweb.com>
++ *
++ *	This program is free software; you can redistribute it and/or modify
++ *	it under the terms of the GNU General Public License version 2 as
++ *	published by the Free Software Foundation.
++ */
++
++#include <linux/module.h>
++#include <linux/moduleparam.h>
++#include <linux/netfilter_ipv4/ip_tables.h>
++
++#include <net/dsfield.h>
++#include <net/ip.h>
++#include <net/tcp.h>
++#include <net/udp.h>
++#include <net/icmp.h>		/* for icmp_send */
++#include <net/route.h>
++
++#include <net/netfilter/nf_conntrack.h>
++#include <net/netfilter/nf_conntrack_core.h>
++#include <net/netfilter/nf_conntrack_extend.h>
++
++#include "linux/netfilter_ipv4/iptable_lbg.h"
++
++MODULE_LICENSE("GPL");
++MODULE_AUTHOR("Li Jian <lijian2@ucweb.com>");
++MODULE_DESCRIPTION("iptables lbg table");
++
++#define LBG_VALID_HOOKS ((1 << NF_INET_PRE_ROUTING) | \
++			 (1 << NF_INET_FORWARD) | \
++			 (1 << NF_INET_POST_ROUTING))
++
++static const struct
++{
++	struct ipt_replace repl;
++	struct ipt_standard entries[3];
++	struct ipt_error term;
++} lbg_initial_table __net_initdata = {
++	.repl = {
++		.name = "lbg",
++		.valid_hooks = LBG_VALID_HOOKS,
++		.num_entries = 4,
++		.size = sizeof(struct ipt_standard) * 3 + sizeof(struct ipt_error),
++		.hook_entry = {
++			[NF_INET_PRE_ROUTING] = 0,
++			[NF_INET_FORWARD] = sizeof(struct ipt_standard),
++			[NF_INET_POST_ROUTING] = sizeof(struct ipt_standard) * 2,
++		},
++		.underflow = {
++			[NF_INET_PRE_ROUTING] = 0,
++			[NF_INET_FORWARD] = sizeof(struct ipt_standard),
++			[NF_INET_POST_ROUTING] = sizeof(struct ipt_standard) * 2,
++		},
++	},
++	.entries = {
++		IPT_STANDARD_INIT(NF_ACCEPT),	/* PRE_ROUTING */
++		IPT_STANDARD_INIT(NF_ACCEPT),	/* FORWARD */
++		IPT_STANDARD_INIT(NF_ACCEPT),	/* POST_ROUTING */
++	},
++	.term = IPT_ERROR_INIT,			/* ERROR */
++};
++
++static const struct xt_table lbg_table_temp = {
++	.name		= "lbg",
++	.valid_hooks	= LBG_VALID_HOOKS,
++	.me		= THIS_MODULE,
++	.af		= NFPROTO_IPV4,
++};
++
++static struct xt_table *iptable_lbg = NULL;
++
++static unsigned int
++__ipt_pre_route(unsigned int hook,
++		  struct sk_buff *skb,
++		  struct nf_conn_lbg *ext)
++{
++  int err;
++  struct rtable *rt = (struct rtable *)skb_dst(skb);
++  struct iphdr *iph = ip_hdr(skb);
++
++  if (!ext)
++    return NF_ACCEPT;
++
++  if (rt)
++    skb_dst_drop(skb);
++
++  err = ip_route_input(skb, ext->new_gw,
++      iph->saddr, iph->tos, skb->dev);
++  if (err) {
++    pr_debug("CHROUTE ip_route_input err:%d\n", err);
++    return NF_DROP;
++  }
++ 
++  rt = (struct rtable *)skb_dst(skb);
++  if (rt)
++    pr_debug("CHROUTE_%p pre new_gw:%pI4 saddr:%pI4\n",
++      ext->ct, &rt->rt_gateway, &iph->saddr);
++
++  set_bit(NFC_LBG_PRE_CHROUTE_BIT, &ext->status);
++  return NF_ACCEPT;
++}
++
++
++static unsigned int
++__ipt_pre_route_reply(unsigned int hook,
++		  struct sk_buff *skb,
++		  struct nf_conn_lbg *ext)
++{
++  struct rtable *rt = (struct rtable *)skb_dst(skb);
++  struct iphdr *iph = ip_hdr(skb);
++  struct flowi fl = {
++		.oif = 0,
++		.nl_u = {
++			 .ip4_u = {
++				   .daddr = iph->daddr,
++				   .saddr = 0,
++				   .tos = RT_TOS(iph->tos),}},
++	};
++  int mtu;
++
++  if (rt)
++    return NF_ACCEPT; 
++
++  if (!ext)
++    return NF_ACCEPT;
++
++  if (!skb->dev)
++    return NF_ACCEPT;
++
++	if (ip_route_output_key(dev_net(skb->dev), &rt, &fl)) {
++		pr_debug("ip_route_output error, dest: %pI4\n", &iph->daddr);
++		goto tx_error_icmp;
++	}
++
++  mtu = dst_mtu(&rt->u.dst);
++  if (skb->len > mtu) {
++    dst_release(&rt->u.dst);
++    pr_debug("%s(): frag needed\n", __func__);
++    goto tx_error;
++  }
++
++  if (!skb_make_writable(skb, sizeof(struct iphdr)))
++    goto tx_error_put;
++
++  if (skb_cow(skb, rt->u.dst.dev->hard_header_len))
++    goto tx_error_put;
++
++  skb_dst_drop(skb);
++  skb_dst_set(skb, &rt->u.dst);
++
++  pr_debug("CHROUTE %p reply route to %pI4\n", ext->ct, &rt->rt_gateway);
++
++  skb->local_df = 1;
++  skb_forward_csum(skb);  
++  NF_HOOK(PF_INET, NF_INET_LOCAL_OUT, (skb), NULL,	(rt)->u.dst.dev, dst_output);
++  return NF_STOLEN;
++
++tx_error_icmp:
++	dst_link_failure(skb);
++tx_error:
++	kfree_skb(skb);
++	return NF_STOLEN;
++tx_error_put:
++	dst_release(&rt->u.dst);
++	goto tx_error;
++}
++
++
++static unsigned int
++ipt_pre_routing_hook(unsigned int hook,
++		  struct sk_buff *skb,
++		  const struct net_device *in,
++		  const struct net_device *out,
++		  int (*okfn)(struct sk_buff *))
++{
++  struct nf_conn *ct;
++	enum ip_conntrack_info ctinfo;
++  struct nf_conn_lbg *lbg_ext;
++  //struct net_device *dev;
++  
++  ct = nf_ct_get(skb, &ctinfo);
++  if (!ct)
++		return NF_ACCEPT;
++
++  if (ct == &nf_conntrack_untracked)
++		return NF_ACCEPT;
++
++  if (!in)
++    return NF_ACCEPT;
++  
++  lbg_ext = nfct_lbg(ct);
++  if (!lbg_ext || !nf_lbg_chroute_initialized(lbg_ext))
++    goto done;
++
++  switch (ctinfo) {
++  case IP_CT_ESTABLISHED + IP_CT_IS_REPLY:
++    if (in->ifindex == lbg_ext->new_out_idx && in->ifindex != lbg_ext->old_out_idx) {
++      return __ipt_pre_route_reply(hook, skb, lbg_ext);
++      /*
++      dev = dev_get_by_index(dev_net(in), lbg_ext->old_out_idx); 
++      if (dev) {
++        skb->dev = dev; 
++        dev_put(dev);
++        pr_debug("CHROUTE %p reply in %s -> %s\n",
++            ct, in->name, skb->dev->name);
++      } else {
++        pr_debug("CHROUTE %p reply get old out dev NULL\n", ct);
++      }
++      */
++    }
++    break;
++
++  case IP_CT_ESTABLISHED:
++    return __ipt_pre_route(hook, skb, lbg_ext);
++  
++  default:
++    break;
++  }
++
++done:
++  /*
++  return ipt_do_table(skb, hook, in, out,
++      iptable_lbg);
++  */
++  return NF_ACCEPT;
++}
++
++static unsigned int
++ipt_forward_hook(unsigned int hook,
++		  struct sk_buff *skb,
++		  const struct net_device *in,
++		  const struct net_device *out,
++		  int (*okfn)(struct sk_buff *))
++{
++  struct nf_conn *ct;
++	enum ip_conntrack_info ctinfo;
++  struct nf_conn_lbg *lbg_ext;
++
++  if (!iptable_lbg)
++    return NF_ACCEPT;
++  
++  ct = nf_ct_get(skb, &ctinfo);
++  if (!ct)
++		return NF_ACCEPT;
++
++  if (ct == &nf_conntrack_untracked)
++		return NF_ACCEPT;
++
++  if (ctinfo != IP_CT_NEW)
++    return NF_ACCEPT;
++
++  lbg_ext = nfct_lbg(ct);
++  if (lbg_ext && nf_lbg_pre_chroute(lbg_ext))
++    return NF_ACCEPT;
++  
++  return ipt_do_table(skb, hook, in, out,
++      iptable_lbg);
++}
++
++static unsigned int
++ipt_post_routing_hook(unsigned int hook,
++		  struct sk_buff *skb,
++		  const struct net_device *in,
++		  const struct net_device *out,
++		  int (*okfn)(struct sk_buff *))
++{
++  return NF_ACCEPT;
++}
++
++static struct nf_hook_ops ipt_ops[] __read_mostly = {
++	{
++		.hook		= ipt_pre_routing_hook,
++		.owner		= THIS_MODULE,
++		.pf		= NFPROTO_IPV4,
++		.hooknum	= NF_INET_PRE_ROUTING,
++		.priority	= NF_IP_PRI_NAT_DST + 1,
++	},
++	{
++		.hook		= ipt_forward_hook,
++		.owner		= THIS_MODULE,
++		.pf		= NFPROTO_IPV4,
++		.hooknum	= NF_INET_FORWARD,
++		.priority	= NF_IP_PRI_FILTER - 1,
++	},
++	{
++		.hook		= ipt_post_routing_hook,
++		.owner		= THIS_MODULE,
++		.pf		= NFPROTO_IPV4,
++		.hooknum	= NF_INET_POST_ROUTING,
++		.priority	= NF_IP_PRI_NAT_SRC - 1,
++	},
++};
++
++static int __net_init iptable_lbg_net_init(struct net *net)
++{
++	/* Register table */
++  if (net != &init_net)
++    return 0;
++
++	iptable_lbg =
++		ipt_register_table(net, &lbg_table_temp, &lbg_initial_table.repl);
++	if (IS_ERR(iptable_lbg))
++		return PTR_ERR(iptable_lbg);
++	return 0;
++}
++
++static void __net_exit iptable_lbg_net_exit(struct net *net)
++{
++  if (net != &init_net)
++    return;
++
++	ipt_unregister_table(iptable_lbg);
++}
++
++static struct pernet_operations iptable_lbg_net_ops = {
++	.init = iptable_lbg_net_init,
++	.exit = iptable_lbg_net_exit,
++};
++
++static void nf_lbg_cleanup_conntrack(struct nf_conn *ct)
++{
++  struct nf_conn_lbg *lbg_ext = nfct_lbg(ct);
++
++  if (lbg_ext == NULL || lbg_ext->ct == NULL)
++    return;
++}
++
++static struct nf_ct_ext_type lbg_extend __read_mostly = {
++	.len		= sizeof(struct nf_conn_lbg),
++	.align		= __alignof__(struct nf_conn_lbg),
++  .destroy = nf_lbg_cleanup_conntrack,
++	.id		= NF_CT_EXT_LBG,
++	.flags		= NF_CT_EXT_F_PREALLOC,
++};
++
++static int __init iptable_lbg_init(void)
++{
++	int ret = 0;
++
++  need_ipv4_conntrack();
++
++  ret = nf_ct_extend_register(&lbg_extend);
++	if (ret < 0) {
++		printk(KERN_ERR "iptable_lbg: Unable to register extension ret %d lbg:%d num:%d\n",
++           ret, NF_CT_EXT_LBG, NF_CT_EXT_NUM);
++		return ret;
++	}
++
++  ret = register_pernet_subsys(&iptable_lbg_net_ops);
++	if (ret < 0)
++		goto cleanup_extend;
++
++  /* Register hooks */
++	ret = nf_register_hooks(ipt_ops, ARRAY_SIZE(ipt_ops));
++	if (ret < 0)
++		goto cleanup_table;
++
++	return ret;
++
++cleanup_table:
++	unregister_pernet_subsys(&iptable_lbg_net_ops);
++
++cleanup_extend:
++  nf_ct_extend_unregister(&lbg_extend);
++	return ret; 
++}
++
++static void __exit iptable_lbg_fini(void)
++{
++  nf_ct_extend_unregister(&lbg_extend);
++	nf_unregister_hooks(ipt_ops, ARRAY_SIZE(ipt_ops));
++	unregister_pernet_subsys(&iptable_lbg_net_ops);
++}
++
++module_init(iptable_lbg_init);
++module_exit(iptable_lbg_fini);
+diff --git a/kernel/net/ipv4/netfilter/nf_nat_core.c b/kernel/net/ipv4/netfilter/nf_nat_core.c
+index 26066a2..a4977f4 100644
+--- a/kernel/net/ipv4/netfilter/nf_nat_core.c
++++ b/kernel/net/ipv4/netfilter/nf_nat_core.c
+@@ -207,6 +207,19 @@ find_best_ips_proto(struct nf_conntrack_tuple *tuple,
+ 	 * like this), even across reboots. */
+ 	minip = ntohl(range->min_ip);
+ 	maxip = ntohl(range->max_ip);
++  
++  /* Lbg hashing source IP and source port and destination IP */
++  if (maniptype == IP_NAT_MANIP_SRC &&
++      range->flags & IP_NAT_RANGE_RANDOM_IP) {
++    j = jhash_3words((__force u32)tuple->src.u3.ip,
++         (__force u32)tuple->dst.u3.ip,
++         (__force u32)tuple->src.u.all, 0);
++    j = ((u64)j * (maxip - minip + 1)) >> 32;
++    *var_ipp = htonl(minip + j);  
++    return;
++  }
++  /* end Lbg */
++
+ 	j = jhash_2words((__force u32)tuple->src.u3.ip,
+ 			 range->flags & IP_NAT_RANGE_PERSISTENT ?
+ 				0 : (__force u32)tuple->dst.u3.ip, 0);
+-- 
+1.7.1
+
