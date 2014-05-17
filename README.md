@@ -1,72 +1,97 @@
 ##lvs-snat
 #####版本说明
-1.  fullnat-snat-kernel-2.6.32-279.el6是在小米的dsnat基础上修改，修复了跟NAT/FULLNAT的兼容性问题。dsnat提供了内网机器访问外网的功能，但是跟NAT/FULLNAT同时使用会有一些问题，见[https://github.com/xiaomi-sa/dsnat](https://github.com/xiaomi-sa/dsnat "DSNAT") 。
-2.  snat-kernel-2.6.32-279.el6是直接在官方内核上修改的，没有使用FULLNAT补丁，在NAT基础上修改。
+1.  patches.lbg-lvs-v2是ucweb lbg项目目前使用的版本，针对alibaba lvs-v2的补丁。完整的代码在 https://github.com/jlijian3/LVS/tree/lvs_v2，阿里的代码 https://github.com/alibaba/LVS/tree/lvs_v2
+2.  我们的入口负载均衡使用lvs-v2，出口网关有两种实现方案
+
+    a) 使用iptables的SNAT，功能完善稳定，性能较差
+    
+    b) 基于lvs-v2开发的SNAT网关，功能简单，多isp出口不适用，性能较好
+    
+3.  snat-gateway-lvs-v2.patch在阿里lvs-v2的fullnat基础上实现了简单的snat网关
+4.  iptable-lbg-CHROUTE-lvs-v2.patch在阿里lvs-v2内核增加了iptables扩展，实现redirect nexthop功能
 
 
-##change log
- - **修复跟NAT的兼容性问题**
- 
- 	在forword钩子函数ip_vs _out中对已经存在的连接，没有判断是否NAT的连接，导致NAT转发出错
+##基于lvs-v2的snat网关安装方法
+###在alibaba 的lvs基础上打补丁
+	git clone git@github.com:alibaba/LVS.git
+ 	cd LVS
+	git branch lvs_v2
+	patch -p1 < snat-gateway-lvs-v2.patch
 
-	**解决方法**： 因为dsnat是通过添加一个0.0.0.0:0的service来实现的，在做dsnat之前，判断svc->addr.ip和svc->port是否为0，或者判断dest->addr.ip == IP_VS_DSNAT_RS_ADDR
+	#如果不想打补丁直接使用我的完整代码
+	git clone https://github.com/jlijian3/LVS.git
 
- - **修复跟FULLNAT的local address的冲突问题**
-
-
-	 FULLNAT的local address添加方式被覆盖，只能为某个zone添加laddr，不能为virtual service添加laddr
-		
-	 **解决方法**：恢复原来为service添加和使用local address的方式，另外增加两个接口为某个zone添加/删除local address，并相应的修改ipvsadm，-P/-Q恢复为service添加laddr，增加-U/-W是为zone添加laddr；keepalived暂时没有修改。
-
-	
-- **不使用FULLNAT补丁，直接在官方内核NAT基础上增加SNAT功能**
-
-	不影响NAT转发，ipvsadm和keepalived不修改，不支持源地址黑白名单
-
-##fullnat-snat安装方法
-
-跟dsnat相同，见[https://github.com/xiaomi-sa/dsnat](https://github.com/xiaomi-sa/dsnat "DSNAT") 。
-内核patch、ipvsadm和keepalived的代码请使用本项目提供的。
-
-###zone的ipvsadm配置有所变化
-	#注意dsnat中使用-P来添加zone的laddr，这里改为-U
-    ipvsadm -U --zone 0.0.0.0/0 -z 1.2.100.3
-	#删除zone的laddr有-Q改为-W
-    ipvsadm -W --zone 0.0.0.0/0 -z 1.2.100.3
-	
-	#-P/-Q恢复为原来的功能，即为service添加删除laddr
-
-###keepalived对zone的配置暂时不支持
-
-##snat安装方法
-###下载redhat 6.3内核
-	wget ftp://ftp.redhat.com/pub/redhat/linux/enterprise/6Server/en/os/SRPMS/kernel-2.6.32-279.el6.src.rpm
-###准备代码
-	rpm -ivh kernel-2.6.32-279.23.1.el6.src.rpm
-	cd ~/rpmbuild/SPECS
-	rpmbuild -bp kernel.spec
-###打补丁
-	cd ~/rpmbuild/BUILD/
-	cd kernel-2.6.32-279.23.1.el6/linux-2.6.32-279.23.1.el6.x86_64/
-	wget https://raw.github.com/jlijian3/lvs-snat/master/snat-kernel-2.6.32-279.el6/lvs-snat-2.6.32-279.el6.patch
-	patch -p1<wget https://raw.github.com/jlijian3/lvs-snat/master/snat-kernel-2.6.32-279.el6/lvs-snat-2.6.32-279.el6.patch
-###编译安装
+###编译内核
 	make -j16
 	make modules_install
 	make install
-	##重启使用新内核
-###ipvsadm配置示例
-	#直接用官方的ipvsadm即可
-	#添加0.0.0.0:0的虚拟服务,加上-p参数
-	#因为只有persistent service才能添加端口为0的服务，而我懒得修改ipvsadm代码了
-	ipvsadm -A -t 0.0.0.0:0 -s rr -p 10
-	#添加转换后的源地址，这里直接使用添加real server参数，端口为0，如下
-	/sbin/ipvsadm -a -t 0.0.0.0:0 -r 10.0.5.100:0 -m
-	#内网访问外网时，源地址就会被改为10.0.5.100
-	
+	init 6
+
+###安装keepalived ipvsadm
+	cd LVS/tools/keepalived
+	./configure --with-kernel-dir="/lib/modules/`uname -r`/build"
+	make
+	make install
+	cd ../ipvsadm
+	make
+	make install
+
+###ipvsadm配置方法
+	#添加fwmark为1的virtual service，开启snat网关服务
+    ipvsadm -A -f 1 -s rr
+	#添加rs，rs ip一定要写成外网出口网关，比如电信网关，转发模式-b选择fullnat
+    ipvsadm –a -f 1 –r 1.1.2.1 -b
+	#添加外网ip作为snat的ip,多个ip轮询使用
+    ipvsadm –P -f 1 -z 1.1.2.100
+    ipvsadm –P -f 1 -z 1.1.2.101
+    ipvsadm –P -f 1 -z 1.1.2.102
+    #把内外机器的默认网关指向lvs的内网ip
     
+###keepalived配置方法后续补充
 
+##iptables做snat网关的方法
+###iptables SNAT配置方法
+	#如果不想用lvs做网关，直接使用iptables即可，不用安装lvs-v2内核，随便一个2.6.32的内核就ok
+	#-s匹配内网网段，-o匹配出口网卡，多isp，多个上行网卡就有用了
+	#to-source可以是一个ip，也可以使连续的ip断，ip选择算法不是轮询，默认是hash(sip,dip)
+	iptables -t nat -A POSTROUTING -s 192.168.100.0/24 -o eth1 -j SNAT --to-source 1.1.2.100-1.1.2.102		  	
+	# --persitent表示ip选择算法是hash(sip)，就是一个内网ip固定一个出口ip
+	iptables -t nat -A POSTROUTING -s 192.168.100.0/24 -o eth2 -j SNAT --to-source 1.1.3.100-1.1.3.102 --persitent
+	#同样，内网机器默认网关指向iptables所在机器的内网ip
 
+###使用iptable_lbg CHROUTE
+	#我们在多isp下有各种变态的选路需求，因此开发了iptable lbg扩展，实现网关重定向，内核统一使用lvs-v2
+	git clone git@github.com:alibaba/LVS.git
+	cd LVS
+	git branch lvs_v2
+	patch -p1 < iptable-lbg-CHROUTE-lvs-v2.patch
+
+	#如果不想打补丁直接使用我的完整代码
+	git clone https://github.com/jlijian3/LVS.git
+    
+###编译内核
+	make -j16
+	make modules_install
+	make install
+	init 6
+	
+###安装iptables
+	git clone https://github.com/jlijian3/lvs-snat.git
+	cd lvs-snat/iptables-1.4.7-lbg
+	./configure
+	make
+	make install
+	cp iptables_init_script /etc/init.d/iptables
+	service iptables start
+	#查看iptable_lbg,ipt_CHROUTE模块是否加载
+	lsmod|grep ipt
+	
+
+###iptables网关重定向
+	#按照正常的路由，报文的nexthop是1.1.2.1，但是我们修改为1.1.3.1
+	#比如有些业务要求电信走联通，有的要求电信走移动
+	#这样我们不需要修改静态路由和策略路由，加几条规则即可
+	iptables -t lbg -A FORWARD -s 192.168.100.0/24 -o eth1 -j CHROUTE --gw 1.1.3.1 --old-gw 1.1.2.1
 
 
 
