@@ -50,17 +50,20 @@
 ###keepalived配置方法后续补充
 
 ##iptables做snat网关的方法
+如果不想用lvs做网关，直接使用iptables即可，不用安装lvs-v2内核，随便一个2.6.32的内核就ok
 ###iptables SNAT配置方法
-	#如果不想用lvs做网关，直接使用iptables即可，不用安装lvs-v2内核，随便一个2.6.32的内核就ok
+	iptables -t nat -A POSTROUTING -s 192.168.100.0/24 -o eth1 -j SNAT --to-source 1.1.2.100-1.1.2.102
+	iptables -t nat -A POSTROUTING -s 192.168.100.0/24 -o eth2 -j SNAT --to-source 1.1.3.100-1.1.3.102 --persitent
+	
 	#-s匹配内网网段，-o匹配出口网卡，多isp，多个上行网卡就有用了
 	#to-source可以是一个ip，也可以使连续的ip断，ip选择算法不是轮询，默认是hash(sip,dip)
-	iptables -t nat -A POSTROUTING -s 192.168.100.0/24 -o eth1 -j SNAT --to-source 1.1.2.100-1.1.2.102		  	
 	# --persitent表示ip选择算法是hash(sip)，就是一个内网ip固定一个出口ip
-	iptables -t nat -A POSTROUTING -s 192.168.100.0/24 -o eth2 -j SNAT --to-source 1.1.3.100-1.1.3.102 --persitent
+	
 	#同样，内网机器默认网关指向iptables所在机器的内网ip
 
 ###使用iptable_lbg CHROUTE
-	#我们在多isp下有各种变态的选路需求，因此开发了iptable lbg扩展，实现网关重定向，内核统一使用lvs-v2
+我们在多isp下有各种变态的选路需求，因此开发了iptable lbg扩展，实现网关重定向，内核统一使用lvs-v2
+###
 	git clone git@github.com:alibaba/LVS.git
 	cd LVS
 	git branch lvs_v2
@@ -88,9 +91,9 @@
 	
 
 ###iptables网关重定向
+比如有些业务要求电信走联通，有的要求电信走移动，这样我们不需要修改静态路由和策略路由，加几条规则即可
+###
 	#按照正常的路由，报文的nexthop是1.1.2.1，但是我们修改为1.1.3.1
-	#比如有些业务要求电信走联通，有的要求电信走移动
-	#这样我们不需要修改静态路由和策略路由，加几条规则即可
 	iptables -t lbg -A FORWARD -s 192.168.100.0/24 -o eth1 -j CHROUTE --gw 1.1.3.1 --old-gw 1.1.2.1
 
 
