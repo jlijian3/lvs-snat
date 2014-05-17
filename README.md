@@ -1,6 +1,6 @@
 ##lvs-snat
 #####版本说明
-1.  patches.lbg-lvs-v2是ucweb lbg项目目前使用的版本，针对alibaba lvs-v2的补丁。完整的代码在 https://github.com/jlijian3/LVS/tree/lvs_v2，阿里的代码 https://github.com/alibaba/LVS/tree/lvs_v2
+1.  patches.lbg-lvs-v2是ucweb lbg项目目前使用的版本，针对alibaba lvs-v2的补丁。完整的代码在 https://github.com/jlijian3/LVS/tree/lvs_v2 ，阿里的代码 https://github.com/alibaba/LVS/tree/lvs_v2
 2.  我们的入口负载均衡使用lvs-v2，出口网关有两种实现方案
 
     a) 使用iptables的SNAT，功能完善稳定，性能较差
