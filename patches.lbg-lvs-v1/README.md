@@ -1,4 +1,4 @@
-##lvs-snat
+##基于阿里lvs-v1的snat网关
 #####版本说明
 1.  fullnat-snat-lvs-v1-2.6.32-279.el6是在小米的dsnat基础上修改，修复了跟NAT/FULLNAT的兼容性问题。dsnat提供了内网机器访问外网的功能，但是跟NAT/FULLNAT同时使用会有一些问题，见[https://github.com/xiaomi-sa/dsnat](https://github.com/xiaomi-sa/dsnat "DSNAT") 。
 dsnat的fullnat使用的是阿里的lvs-v1版本，见https://github.com/alibaba/LVS/tree/lvs_v1 ，这个版本比较旧了，建议使用lvs-v2版本，lvs-v3依赖于万兆网卡flow director特性。
