@@ -8,7 +8,7 @@ diff -ruNp linux-2.6.32-279.el6.x86_64/include/linux/ip_vs.h linux-2.6.32-279.el
 + *
 + * Changes:
 + *   Yu Bo        <yubo@xiaomi.com>
-+ *   Li Jian      <lijian2@ucweb.com>
++ *   Li Jian      <jlijian3@gmail.com>
   */
  
  #ifndef _IP_VS_H
@@ -1603,7 +1603,7 @@ diff -ruNp linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_conn.c linux-2.6
 + *
 + *	          Yu Bo        <yubo@xiaomi.com>
 + *
-+ *            Li Jian     <lijian2@ucweb.com>       make dsnat compatible with NAT/FULLNAT
++ *            Li Jian     <jlijian3@gmail.com>       make dsnat compatible with NAT/FULLNAT
   */
  
  #define KMSG_COMPONENT "IPVS"
@@ -2756,7 +2756,7 @@ diff -ruNp linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_core.c linux-2.6
 + *
 + *   Yu Bo        <yubo@xiaomi.com>
 + *
-+ *   Li Jian     <lijian2@ucweb.com>       make dsnat compatible with NAT/FULLNAT
++ *   Li Jian     <jlijian3@gmail.com>       make dsnat compatible with NAT/FULLNAT
   */
  
  #define KMSG_COMPONENT "IPVS"
@@ -3693,7 +3693,7 @@ diff -ruNp linux-2.6.32-279.el6.x86_64/net/netfilter/ipvs/ip_vs_ctl.c linux-2.6.
 + *	Jiaming Wu   <pukong.wjm@taobao.com>	support FULLNAT+SYNPROXY
   *
 + *   Yu Bo        <yubo@xiaomi.com>
-+ *   Li Jian     <lijian2@ucweb.com>       make dsnat compatible with NAT/FULLNAT
++ *   Li Jian     <jlijian3@gmail.com>       make dsnat compatible with NAT/FULLNAT
   */
  
  #define KMSG_COMPONENT "IPVS"

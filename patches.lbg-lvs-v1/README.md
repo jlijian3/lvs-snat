@@ -43,7 +43,7 @@ dsnat的fullnat使用的是阿里的lvs-v1版本，见https://github.com/alibaba
 ###下载redhat 6.3内核
 	wget ftp://ftp.redhat.com/pub/redhat/linux/enterprise/6Server/en/os/SRPMS/kernel-2.6.32-279.el6.src.rpm
 ###准备代码
-	rpm -ivh kernel-2.6.32-279.23.1.el6.src.rpm
+  rpm -ivh kernel-2.6.32-279.23.1.el6.src.rpm
 	cd ~/rpmbuild/SPECS
 	rpmbuild -bp kernel.spec
 ###打补丁
