@@ -68,15 +68,15 @@
     
     #不区分isp，忽略路由表，所有包都走一条链路，ip选择算法默认sdh
     #单isp的网关这样配就可以了
-    ipvsadm -K -f 1 -F 192.168.0.0/16 -N 1.1.3.1 -U 1.1.2.100-1.1.2.110
+    ipvsadm -K -f 1 -F 192.168.0.0/16 -N 1.1.3.1 -U 1.1.3.100-1.1.3.110
     
     #把内外机器的默认网关指向lvs的内网ip
     
 ###keepalived配置方法
     #fwmark 1只是开关，跟iptables一毛钱关系都没有，请关闭iptables
     virtual_server fwmark 1 {
-    	#192.168.40.0/24的按照多isp路由表走，多isp靠oif或者gw来区分
-    	snat_rule {
+    #192.168.40.0/24的按照多isp路由表走，多isp靠oif或者gw来区分
+    snat_rule {
 	    	from 192.168.40.0/24
 	    	gw 1.1.3.1
 	    	oif eth2
@@ -92,8 +92,8 @@
 	    algo sdh
 	}
     	
-    	#其他网段的全部都走1.1.2.1吧，这里就不要写oif和gw了，我们只限制来源ip
-    	snat_rule {
+    #其他网段的全部都走1.1.2.1吧，这里就不要写oif和gw了，我们只限制来源ip
+    snat_rule {
 	    from 192.168.0.0/16
 	    new_gw 1.1.2.1
 	    snat_ip 1.1.2.71-1.1.2.73
