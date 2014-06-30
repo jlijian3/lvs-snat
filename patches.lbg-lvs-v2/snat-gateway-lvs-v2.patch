@@ -1,5 +1,491 @@
+diff --git a/kernel/.config b/kernel/.config
+index 5eb4948..9a3b2fc 100644
+--- a/kernel/.config
++++ b/kernel/.config
+@@ -1,7 +1,7 @@
+ #
+ # Automatically generated make config: don't edit
+ # Linux kernel version: 2.6.32
+-# Mon Feb 20 19:35:45 2012
++# Mon Jun 30 15:19:27 2014
+ #
+ CONFIG_64BIT=y
+ # CONFIG_X86_32 is not set
+@@ -763,6 +763,7 @@ CONFIG_IP_VS_PROTO_UDP=y
+ CONFIG_IP_VS_PROTO_AH_ESP=y
+ CONFIG_IP_VS_PROTO_ESP=y
+ CONFIG_IP_VS_PROTO_AH=y
++CONFIG_IP_VS_PROTO_ICMP=y
+ 
+ #
+ # IPVS scheduler
+@@ -777,6 +778,7 @@ CONFIG_IP_VS_DH=m
+ CONFIG_IP_VS_SH=m
+ CONFIG_IP_VS_SED=m
+ CONFIG_IP_VS_NQ=m
++CONFIG_IP_VS_SNAT_SCHED=m
+ 
+ #
+ # IPVS application helper
+diff --git a/kernel/include/linux/ip_vs.h b/kernel/include/linux/ip_vs.h
+index 17f51e7..6b70044 100644
+--- a/kernel/include/linux/ip_vs.h
++++ b/kernel/include/linux/ip_vs.h
+@@ -8,7 +8,7 @@
+ 
+ #include <linux/types.h>	/* For __beXX types in userland */
+ 
+-#define IP_VS_VERSION_CODE	0x010201
++#define IP_VS_VERSION_CODE	0x010202
+ #define NVERSION(version)			\
+ 	(version >> 16) & 0xFF,			\
+ 	(version >> 8) & 0xFF,			\
+@@ -57,7 +57,10 @@
+ #define IP_VS_SO_SET_ZERO	(IP_VS_BASE_CTL+15)
+ #define IP_VS_SO_SET_ADDLADDR	(IP_VS_BASE_CTL+16)
+ #define IP_VS_SO_SET_DELLADDR	(IP_VS_BASE_CTL+17)
+-#define IP_VS_SO_SET_MAX	IP_VS_SO_SET_DELLADDR
++#define IP_VS_SO_SET_ADDSNAT (IP_VS_BASE_CTL + 18)
++#define IP_VS_SO_SET_DELSNAT (IP_VS_BASE_CTL + 19)
++#define IP_VS_SO_SET_EDITSNAT (IP_VS_BASE_CTL + 20)
++#define IP_VS_SO_SET_MAX	 IP_VS_SO_SET_EDITSNAT	
+ 
+ #define IP_VS_SO_GET_VERSION	IP_VS_BASE_CTL
+ #define IP_VS_SO_GET_INFO	(IP_VS_BASE_CTL+1)
+@@ -68,7 +71,8 @@
+ #define IP_VS_SO_GET_TIMEOUT	(IP_VS_BASE_CTL+6)
+ #define IP_VS_SO_GET_DAEMON	(IP_VS_BASE_CTL+7)
+ #define IP_VS_SO_GET_LADDRS	(IP_VS_BASE_CTL+8)
+-#define IP_VS_SO_GET_MAX	IP_VS_SO_GET_LADDRS
++#define IP_VS_SO_GET_SNAT (IP_VS_BASE_CTL + 9) /* not used now */
++#define IP_VS_SO_GET_MAX	 IP_VS_SO_GET_SNAT
+ 
+ /*
+  *      IPVS Connection Flags
+@@ -127,6 +131,26 @@ struct ip_vs_dest_user {
+ 	__u32 l_threshold;	/* lower threshold */
+ };
+ 
++/* SNAT ip pool select algorithm */
++enum {
++    IPVS_SNAT_IPS_NORMAL = 0, /* src-ip/dst-ip */
++    IPVS_SNAT_IPS_PERSITENT,  /* src-ip */
++    IPVS_SNAT_IPS_RANDOM,     /* src-ip/dst-ip/src-port */
++};
++
++struct ip_vs_dest_snat_user {
++    __be32 saddr; /* SNAT source address */
++    __be16 smask; /* SNAT source network mask */
++    __be32 daddr; /* SNAT dest address */
++    __be16 dmask; /* SNAT dest network mask */
++    __be32 gw; /* SNAT orign gateway */
++    __be32 min_source_ip, max_source_ip; /* SNAT ip pool */
++    __u8 algo; /* SNAT ip pool select algorithm */
++    unsigned conn_flags;
++    __be32 new_gw; /* SNAT new next gateway */
++    char out_dev[IP_VS_IFNAME_MAXLEN];
++};
++
+ struct ip_vs_laddr_user {
+ 	__be32 addr;		/* ipv4 address */
+ };
+@@ -313,6 +337,11 @@ enum {
+ 	IPVS_CMD_DEL_LADDR,	/* del local address */
+ 	IPVS_CMD_GET_LADDR,	/* dump local address */
+ 
++	IPVS_CMD_NEW_SNATDEST, /* add snat rule */
++	IPVS_CMD_SET_SNATDEST,  /* edit snat rule */
++	IPVS_CMD_DEL_SNATDEST, /* del snat rule */
++	IPVS_CMD_GET_SNATDEST, /* dump snat rule */
++
+ 	__IPVS_CMD_MAX,
+ };
+ 
+@@ -328,10 +357,11 @@ enum {
+ 	IPVS_CMD_ATTR_TIMEOUT_TCP_FIN,	/* TCP FIN wait timeout */
+ 	IPVS_CMD_ATTR_TIMEOUT_UDP,	/* UDP timeout */
+ 	IPVS_CMD_ATTR_LADDR,	/* nested local address attribute */
++	IPVS_CMD_ATTR_SNATDEST,  /* nested snat rule attribute */
+ 	__IPVS_CMD_ATTR_MAX,
+ };
+ 
+-#define IPVS_CMD_ATTR_MAX (__IPVS_SVC_ATTR_MAX - 1)
++#define IPVS_CMD_ATTR_MAX (__IPVS_CMD_ATTR_MAX - 1)
+ 
+ /*
+  * Attributes used to describe a service
+@@ -352,6 +382,7 @@ enum {
+ 	IPVS_SVC_ATTR_NETMASK,	/* persistent netmask */
+ 
+ 	IPVS_SVC_ATTR_STATS,	/* nested attribute for service stats */
++	
+ 	__IPVS_SVC_ATTR_MAX,
+ };
+ 
+@@ -378,16 +409,42 @@ enum {
+ 	IPVS_DEST_ATTR_PERSIST_CONNS,	/* persistent connections */
+ 
+ 	IPVS_DEST_ATTR_STATS,	/* nested attribute for dest stats */
++	
++	IPVS_DEST_ATTR_SNATRULE, /* nested attribute for dest snat rule */
++	
+ 	__IPVS_DEST_ATTR_MAX,
+ };
+ 
+ #define IPVS_DEST_ATTR_MAX (__IPVS_DEST_ATTR_MAX - 1)
+ 
+-/*
+- *  * Attirbutes used to describe a local address
+- *   *
+- *    */
+ 
++/**
++  * Attribute used to describe a snat dest (snat rule)
++  * Used inside nested attribute IPVS_CMD_ATTR_SNATDEST and IPVS_DEST_ATTR_SNATRULE
++  */
++enum {
++        IPVS_SNAT_DEST_ATTR_UNSPEC = 0,
++        IPVS_SNAT_DEST_ATTR_FADDR,
++        IPVS_SNAT_DEST_ATTR_FMASK,
++        IPVS_SNAT_DEST_ATTR_DADDR,
++        IPVS_SNAT_DEST_ATTR_DMASK,
++        IPVS_SNAT_DEST_ATTR_GW,
++        IPVS_SNAT_DEST_ATTR_MINIP,
++        IPVS_SNAT_DEST_ATTR_MAXIP,
++        IPVS_SNAT_DEST_ATTR_ALGO,
++        IPVS_SNAT_DEST_ATTR_NEWGW,
++        IPVS_SNAT_DEST_ATTR_CONNFLAG,
++        IPVS_SNAT_DEST_ATTR_OUTDEV,
++        
++        __IPVS_SNAT_DEST_ATTR_MAX,
++};
++
++#define IPVS_SNAT_DEST_ATTR_MAX (__IPVS_SNAT_DEST_ATTR_MAX - 1)
++
++
++/*
++  * Attirbutes used to describe a local address
++  */
+ enum {
+ 	IPVS_LADDR_ATTR_UNSPEC = 0,
+ 	IPVS_LADDR_ATTR_ADDR,
+@@ -447,3 +504,4 @@ enum {
+ #define IPVS_INFO_ATTR_MAX (__IPVS_INFO_ATTR_MAX - 1)
+ 
+ #endif				/* _IP_VS_H */
++
+diff --git a/kernel/include/net/ip_vs.h b/kernel/include/net/ip_vs.h
+index b11d9a7..e8cd6a8 100644
+--- a/kernel/include/net/ip_vs.h
++++ b/kernel/include/net/ip_vs.h
+@@ -426,6 +426,9 @@ struct ip_vs_conn {
+ 	struct net_device	*indev;
+ 	unsigned char		src_hwaddr[MAX_ADDR_LEN];
+ 	unsigned char		dst_hwaddr[MAX_ADDR_LEN];
++  struct net_device *dev_inside;
++  unsigned char   src_hwaddr_inside[ETH_ALEN];
++  unsigned char   dst_hwaddr_inside[ETH_ALEN];
+ };
+ 
+ /*
+@@ -465,6 +468,20 @@ struct ip_vs_dest_user_kern {
+ 	u32 l_threshold;	/* lower threshold */
+ };
+ 
++struct ip_vs_snat_dest_user_kern {
++    //struct ip_vs_dest_user_kern dest;    
++    union nf_inet_addr saddr; /* source address */    
++    u32 smask; /* soure network mask */    
++    union nf_inet_addr daddr; /* dest address */   
++    u32 dmask; /* dest network mask */   
++    union nf_inet_addr  gw;/* isp gateway */    
++    union nf_inet_addr minip, maxip; /* snat ip */    
++    u8 algo; /* snat source ip address choice algo */    
++    union nf_inet_addr new_gw; /* dest gateway */   
++    unsigned conn_flags;	/* connection flags */    
++    char out_dev[IP_VS_IFNAME_MAXLEN];
++};
++
+ struct ip_vs_laddr_user_kern {
+ 	union nf_inet_addr addr;	/* ip address */
+ };
+@@ -545,6 +562,33 @@ struct ip_vs_dest {
+ 	__u32 vfwmark;		/* firewall mark of service */
+ };
+ 
++struct ip_vs_dest_snat {
++  struct ip_vs_dest dest;
++
++  /* snat rule */
++  union nf_inet_addr saddr;
++  union nf_inet_addr smask;
++  union nf_inet_addr daddr;
++  union nf_inet_addr dmask;
++  union nf_inet_addr minip, maxip; /* snat ip */
++  u8 ip_sel_algo;
++  union nf_inet_addr new_gateway;
++  char out_dev[IP_VS_IFNAME_MAXLEN];
++  unsigned char out_dev_mask[IP_VS_IFNAME_MAXLEN];
++  struct list_head rule_list;
++};
++
++#define IS_SNAT_CP(cp) ((cp)->dest && \
++        (cp)->dest->svc && \
++        (cp)->dest->svc->fwmark == 1)
++
++#define NOT_SNAT_CP(cp) (!(cp)->dest || \
++        !(cp)->dest->svc || \
++        (cp)->dest->svc->fwmark != 1)
++
++#define IS_SNAT_SVC(svc) ((svc)->fwmark == 1)
++#define NOT_SNAT_SVC(svc) ((svc)->fwmark != 1)
++
+ /*
+  *	Local ip address object, now only used in FULL NAT model
+  */
+@@ -707,10 +751,15 @@ enum {
+ 	DEFENCE_UDP_DROP,
+ 	FAST_XMIT_REJECT,
+ 	FAST_XMIT_PASS,
++  FAST_XMIT_FAILED,
+ 	FAST_XMIT_SKB_COPY,
+ 	FAST_XMIT_NO_MAC,
+ 	FAST_XMIT_SYNPROXY_SAVE,
+ 	FAST_XMIT_DEV_LOST,
++  FAST_XMIT_REJECT_INSIDE,
++  FAST_XMIT_PASS_INSIDE,
++  FAST_XMIT_FAILED_INSIDE,
++  FAST_XMIT_SYNPROXY_SAVE_INSIDE,
+ 	RST_IN_SYN_SENT,
+ 	RST_OUT_SYN_SENT,
+ 	RST_IN_ESTABLISHED,
+@@ -955,6 +1004,7 @@ extern int sysctl_ip_vs_tcp_drop_entry;
+ extern int sysctl_ip_vs_udp_drop_entry;
+ extern int sysctl_ip_vs_conn_expire_tcp_rst;
+ extern int sysctl_ip_vs_fast_xmit;
++extern int sysctl_ip_vs_fast_xmit_inside;
+ 
+ extern struct ip_vs_service *ip_vs_service_get(int af, __u32 fwmark,
+ 					       __u16 protocol,
+@@ -1056,6 +1106,9 @@ extern int ip_vs_fnat_response_icmp_xmit(struct sk_buff *skb,
+ 					 struct ip_vs_protocol *pp,
+ 					 struct ip_vs_conn *cp, int offset);
+ 
++extern int ip_vs_snat_out_xmit
++    (struct sk_buff *skb, struct ip_vs_conn *cp, struct ip_vs_protocol *pp);
++
+ #ifdef CONFIG_IP_VS_IPV6
+ extern int ip_vs_bypass_xmit_v6
+     (struct sk_buff *skb, struct ip_vs_conn *cp, struct ip_vs_protocol *pp);
+diff --git a/kernel/net/netfilter/ipvs/Kconfig b/kernel/net/netfilter/ipvs/Kconfig
+index e1e4401..23b713e 100644
+--- a/kernel/net/netfilter/ipvs/Kconfig
++++ b/kernel/net/netfilter/ipvs/Kconfig
+@@ -100,6 +100,12 @@ config	IP_VS_PROTO_AH
+ 	  This option enables support for load balancing AH (Authentication
+ 	  Header) transport protocol. Say Y if unsure.
+ 
++config	IP_VS_PROTO_ICMP
++	bool "ICMP snat gateway support"
++	---help---
++	  This option enables support for snat gateway ICMP transport
++	  protocol. Say Y if unsure.
++
+ comment "IPVS scheduler"
+ 
+ config	IP_VS_RR
+@@ -222,6 +228,14 @@ config	IP_VS_NQ
+ 	  If you want to compile it in kernel, say Y. To compile it as a
+ 	  module, choose M here. If unsure, say N.
+ 
++config	IP_VS_SNAT_SCHED
++	tristate "snat gateway scheduling"
++	---help---
++	  The snat-gateway scheduling match rules like iptables`s rules. 
++
++	  If you want to compile it in kernel, say Y. To compile it as a
++	  module, choose M here. If unsure, say N.
++
+ comment 'IPVS application helper'
+ 
+ config	IP_VS_FTP
+diff --git a/kernel/net/netfilter/ipvs/Makefile b/kernel/net/netfilter/ipvs/Makefile
+index f7493c5..7c0a312 100644
+--- a/kernel/net/netfilter/ipvs/Makefile
++++ b/kernel/net/netfilter/ipvs/Makefile
+@@ -3,7 +3,7 @@
+ #
+ 
+ # IPVS transport protocol load balancing support
+-ip_vs_proto-objs-y :=
++ip_vs_proto-objs-$(CONFIG_IP_VS_PROTO_ICMP) := ip_vs_proto_icmp.o
+ ip_vs_proto-objs-$(CONFIG_IP_VS_PROTO_TCP) += ip_vs_proto_tcp.o
+ ip_vs_proto-objs-$(CONFIG_IP_VS_PROTO_UDP) += ip_vs_proto_udp.o
+ ip_vs_proto-objs-$(CONFIG_IP_VS_PROTO_AH_ESP) += ip_vs_proto_ah_esp.o
+@@ -29,6 +29,7 @@ obj-$(CONFIG_IP_VS_DH) += ip_vs_dh.o
+ obj-$(CONFIG_IP_VS_SH) += ip_vs_sh.o
+ obj-$(CONFIG_IP_VS_SED) += ip_vs_sed.o
+ obj-$(CONFIG_IP_VS_NQ) += ip_vs_nq.o
++obj-$(CONFIG_IP_VS_SNAT_SCHED) += ip_vs_snat_sched.o
+ 
+ # IPVS application helpers
+ obj-$(CONFIG_IP_VS_FTP) += ip_vs_ftp.o
+diff --git a/kernel/net/netfilter/ipvs/ip_vs_conn.c b/kernel/net/netfilter/ipvs/ip_vs_conn.c
+index b5370ca..fdb1d7d 100644
+--- a/kernel/net/netfilter/ipvs/ip_vs_conn.c
++++ b/kernel/net/netfilter/ipvs/ip_vs_conn.c
+@@ -429,6 +429,9 @@ static inline void ip_vs_bind_xmit(struct ip_vs_conn *cp)
+ 		break;
+ 
+ 	case IP_VS_CONN_F_FULLNAT:
++    if (IS_SNAT_CP(cp))
++      cp->packet_xmit = ip_vs_snat_out_xmit;
++    else
+ 		cp->packet_xmit = ip_vs_fnat_xmit;
+ 		break;
+ 
+@@ -649,6 +652,59 @@ static struct ip_vs_laddr *ip_vs_get_laddr(struct ip_vs_service *svc)
+ }
+ 
+ /*
++ * get a local address from given dest
++ */
++static int
++ip_vs_get_laddr_snat(struct ip_vs_conn *cp,
++            struct ip_vs_laddr *local)
++{
++  struct ip_vs_dest_snat *rule = (struct ip_vs_dest_snat *)cp->dest;
++	u32 minip, maxip, j;
++  u32 k2, k3;
++
++  if (cp->af != AF_INET)
++    return 1;
++
++  if (!rule || !local)
++    return 1;
++
++  atomic64_set(&local->port, cp->cport); 
++
++  if (rule->minip.ip == 0 || rule->maxip.ip == 0)
++    return 1;
++
++  if (rule->minip.ip == rule->maxip.ip) {
++    local->addr.ip = rule->minip.ip;
++    return 0;
++  }
++
++  switch (rule->ip_sel_algo) {
++  case IPVS_SNAT_IPS_PERSITENT:
++    k2 = 0;
++    k3 = 0;
++    break;
++
++  case IPVS_SNAT_IPS_RANDOM:
++    k2 = (__force u32)cp->vaddr.ip;
++    k3 = ((__force u32)cp->cport) << 16 | (__force u32)cp->cport;
++    break;
++
++  default:
++    k2 = (__force u32)cp->vaddr.ip;
++    k3 = 0;
++    break;
++  }
++
++  minip = ntohl(rule->minip.ip);
++	maxip = ntohl(rule->maxip.ip);
++
++  j = jhash_3words((__force u32)cp->caddr.ip, k2, k3, 0);
++  j = ((u64)j * (maxip - minip + 1)) >> 32;
++  local->addr.ip = htonl(minip + j);
++  return 0;
++}
++
++/*
+  *	Bind a connection entry with a local address
+  *	and hashed it in connection table.
+  *	Called just after a new connection entry is created and destination has binded.
+@@ -659,6 +715,7 @@ static inline int ip_vs_hbind_laddr(struct ip_vs_conn *cp)
+ 	struct ip_vs_dest *dest = cp->dest;
+ 	struct ip_vs_service *svc = dest->svc;
+ 	struct ip_vs_laddr *local;
++  struct ip_vs_laddr snat_local;
+ 	int ret = 0;
+ 	int remaining, i, tport, hit = 0;
+ 	unsigned ihash, ohash;
+@@ -695,7 +752,14 @@ static inline int ip_vs_hbind_laddr(struct ip_vs_conn *cp)
+ 	 * fwd methods: IP_VS_CONN_F_FULLNAT
+ 	 */
+ 	/* choose a local address by round-robin */
++  if (IS_SNAT_SVC(svc)) {
++    if (ip_vs_get_laddr_snat(cp, &snat_local) == 0)
++      local = &snat_local;
++    else
++      local = NULL;
++  } else
+ 	local = ip_vs_get_laddr(svc);
++
+ 	if (local != NULL) {
+ 		/*OUTside2INside: hashed by client address and port, virtual address and port */
+ 		ihash =
+@@ -703,6 +767,7 @@ static inline int ip_vs_hbind_laddr(struct ip_vs_conn *cp)
+ 				       &cp->vaddr, cp->vport);
+ 
+ 		/* increase the refcnt counter of the local address */
++    if (NOT_SNAT_SVC(svc))
+ 		ip_vs_laddr_hold(local);
+ 		ip_vs_addr_copy(cp->af, &cp->out_idx->d_addr, &local->addr);
+ 		ip_vs_addr_copy(cp->af, &cp->laddr, &local->addr);
+@@ -712,7 +777,7 @@ static inline int ip_vs_hbind_laddr(struct ip_vs_conn *cp)
+ 			tport =
+ 			    sysctl_ip_vs_lport_min +
+ 			    atomic64_inc_return(&local->port) % remaining;
+-			cp->out_idx->d_port = cp->lport = htons(tport);
++			cp->out_idx->d_port = cp->lport = (IPPROTO_ICMP != cp->protocol) ? htons(tport) : cp->cport;
+ 
+ 			/* init hit everytime before lookup the tuple */
+ 			hit = 0;
+@@ -737,16 +802,21 @@ static inline int ip_vs_hbind_laddr(struct ip_vs_conn *cp)
+ 				    && cp->lport == cidx->d_port
+ 				    && cp->protocol == cidx->protocol) {
+ 					/* HIT */
++          if (NOT_SNAT_SVC(svc))
+ 					atomic64_inc(&local->port_conflict);
+ 					hit = 1;
+ 					break;
+ 				}
+ 			}
+ 			if (hit == 0) {
++        if (NOT_SNAT_SVC(svc))
+ 				cp->local = local;
++        else
++          cp->local = NULL;
+ 				/* hashed */
+ 				__ip_vs_conn_hash(cp, ihash, ohash);
+ 				ip_vs_conn_unlock2(ihash, ohash);
++        if (NOT_SNAT_SVC(svc))
+ 				atomic_inc(&local->conn_counts);
+ 				ret = 1;
+ 				goto out;
+@@ -754,6 +824,7 @@ static inline int ip_vs_hbind_laddr(struct ip_vs_conn *cp)
+ 			ip_vs_conn_unlock2(ihash, ohash);
+ 		}
+ 		if (ret == 0) {
++      if (NOT_SNAT_SVC(svc))
+ 			ip_vs_laddr_put(local);
+ 		}
+ 	}
+@@ -962,6 +1033,9 @@ static void ip_vs_conn_expire(unsigned long data)
+ 		if (cp->indev != NULL)
+ 			dev_put(cp->indev);
+ 
++    if (cp->dev_inside != NULL)
++      dev_put(cp->dev_inside);
++
+ 		kmem_cache_free(ip_vs_conn_cachep, cp);
+ 		return;
+ 	}
 diff --git a/kernel/net/netfilter/ipvs/ip_vs_core.c b/kernel/net/netfilter/ipvs/ip_vs_core.c
-index f6c373b..e4685f7 100644
+index f6c373b..d3f8c3a 100644
 --- a/kernel/net/netfilter/ipvs/ip_vs_core.c
 +++ b/kernel/net/netfilter/ipvs/ip_vs_core.c
 @@ -346,6 +346,15 @@ struct ip_vs_conn *ip_vs_schedule(struct ip_vs_service *svc,
@@ -7,10 +493,10 @@ index f6c373b..e4685f7 100644
  	 *    Create a connection entry.
  	 */
 +  
-+  if (svc->fwmark == 1)
-+    cp = ip_vs_conn_new(svc->af, iph.protocol,
-+            &iph.saddr, pptr[0],
-+            &iph.daddr, pptr[1],
++  if (IS_SNAT_SVC(svc))
++	cp = ip_vs_conn_new(svc->af, iph.protocol,
++			    &iph.saddr, pptr[0],
++			    &iph.daddr, pptr[1],
 +            &iph.daddr, pptr[1],
 +            ip_vs_onepacket_enabled(svc, &iph),
 +            dest, skb, is_synproxy_on);
@@ -18,7 +504,7 @@ index f6c373b..e4685f7 100644
  	cp = ip_vs_conn_new(svc->af, iph.protocol,
  			    &iph.saddr, pptr[0],
  			    &iph.daddr, pptr[1],
-@@ -779,6 +788,47 @@ handle_response(int af, struct sk_buff *skb, struct ip_vs_protocol *pp,
+@@ -779,6 +788,49 @@ handle_response(int af, struct sk_buff *skb, struct ip_vs_protocol *pp,
  	return ret;
  }
  
@@ -26,8 +512,10 @@ index f6c373b..e4685f7 100644
 +ip_vs_snat_out(int af, struct sk_buff *skb, struct ip_vs_protocol *pp,
 +		  int *v, struct ip_vs_conn *cp)
 +{
-+  if (cp && cp->dest && cp->dest->svc
-+      && cp->dest->svc->fwmark != 1)
++  if (af != AF_INET)
++    return 1;
++
++  if (cp && NOT_SNAT_CP(cp))
 +    return 1;
 +
 +  EnterFunction(11);
@@ -66,7 +554,7 @@ index f6c373b..e4685f7 100644
  /*
   *	It is hooked at the NF_INET_FORWARD chain, used only for VS/NAT.
   *	Check if outgoing packet belongs to the established ip_vs_conn.
-@@ -793,6 +843,7 @@ ip_vs_out(unsigned int hooknum, struct sk_buff *skb,
+@@ -793,6 +845,7 @@ ip_vs_out(unsigned int hooknum, struct sk_buff *skb,
  	struct ip_vs_conn *cp;
  	int af;
  	int res_dir;
@@ -74,7 +562,7 @@ index f6c373b..e4685f7 100644
  
  	EnterFunction(11);
  
-@@ -851,6 +902,10 @@ ip_vs_out(unsigned int hooknum, struct sk_buff *skb,
+@@ -851,6 +904,10 @@ ip_vs_out(unsigned int hooknum, struct sk_buff *skb,
  	 */
  	cp = pp->conn_out_get(af, skb, pp, &iph, iph.len, 0, &res_dir);
  
@@ -85,3 +573,5295 @@ index f6c373b..e4685f7 100644
  	if (unlikely(!cp)) {
  		if (sysctl_ip_vs_nat_icmp_send &&
  		    (pp->protocol == IPPROTO_TCP ||
+diff --git a/kernel/net/netfilter/ipvs/ip_vs_ctl.c b/kernel/net/netfilter/ipvs/ip_vs_ctl.c
+index 6204fb8..202415e 100644
+--- a/kernel/net/netfilter/ipvs/ip_vs_ctl.c
++++ b/kernel/net/netfilter/ipvs/ip_vs_ctl.c
+@@ -35,6 +35,7 @@
+ #include <linux/netfilter.h>
+ #include <linux/netfilter_ipv4.h>
+ #include <linux/mutex.h>
++#include <linux/inetdevice.h>
+ 
+ #include <net/net_namespace.h>
+ #include <net/ip.h>
+@@ -150,6 +151,8 @@ int sysctl_ip_vs_udp_drop_entry = 1;
+ int sysctl_ip_vs_conn_expire_tcp_rst = 1;
+ /* L2 fast xmit, response only (to client) */
+ int sysctl_ip_vs_fast_xmit = 1;
++/* L2 fast xmit, inside (to RS) */
++int sysctl_ip_vs_fast_xmit_inside = 1;
+ 
+ #ifdef CONFIG_IP_VS_DEBUG
+ static int sysctl_ip_vs_debug_level = 0;
+@@ -675,6 +678,40 @@ struct ip_vs_dest *ip_vs_lookup_real_service(int af, __u16 protocol,
+ 	return NULL;
+ }
+ 
++/**
++  * Lookup snat desp by {saddr, smask, daddr, dmask, gw, outdev} in the given service
++  */
++static struct ip_vs_dest_snat *ip_vs_lookup_snat_dest(struct ip_vs_service *svc,
++                                          const union nf_inet_addr *saddr,
++                                          u32 smask,
++                                          const union nf_inet_addr *daddr,
++                                          u32 dmask,
++                                          const union nf_inet_addr* gw,
++                                          char *out_dev)
++{
++    struct ip_vs_dest *pure_dest;
++    struct ip_vs_dest_snat *snat_dest;
++
++    EnterFunction(2);
++    if (IS_SNAT_SVC(svc)) {
++        list_for_each_entry(pure_dest, &svc->destinations, n_list) {
++            snat_dest = (struct ip_vs_dest_snat *)pure_dest;
++            if ((snat_dest->dest.af == svc->af)
++                && ip_vs_addr_equal(svc->af, &snat_dest->saddr, saddr)
++                && ip_vs_addr_equal(svc->af, &snat_dest->daddr, daddr)
++                && inet_mask_len(snat_dest->smask.ip) == smask
++                && inet_mask_len(snat_dest->dmask.ip) == dmask
++                && ip_vs_addr_equal(svc->af, &pure_dest->addr, gw)
++                && !strcmp(snat_dest->out_dev, out_dev)) {
++                LeaveFunction(2);
++                return snat_dest;
++            }
++        }
++    }
++
++    return NULL;
++}
++
+ /*
+  *	Lookup destination by {addr,port} in the given service
+  */
+@@ -727,6 +764,62 @@ struct ip_vs_dest *ip_vs_find_dest(int af, const union nf_inet_addr *daddr,
+ 	return dest;
+ }
+ 
++static struct ip_vs_dest_snat *ip_vs_trash_get_snat_dest(struct ip_vs_service *svc,
++                                               const union nf_inet_addr *saddr,
++                                               u32 smask,
++                                               const union nf_inet_addr *daddr,
++                                               u32 dmask,
++                                               const union nf_inet_addr *gw,
++                                               char* out_dev)
++{
++    struct ip_vs_dest *dest, *nxt;
++    struct ip_vs_dest_snat *snat_dest = NULL;
++
++
++    EnterFunction(2);
++    /* Find the snat destination in trash */
++    list_for_each_entry_safe(dest, nxt, &ip_vs_dest_trash, n_list) {
++        IP_VS_DBG_BUF(3, "Destination %u/%s:%u still in trash, "
++                  "dest->refcnt=%d\n",
++                  dest->vfwmark,
++                  IP_VS_DBG_ADDR(svc->af, &dest->addr),
++                  ntohs(dest->port), atomic_read(&dest->refcnt));
++
++        if (dest->svc && IS_SNAT_SVC(dest->svc)) {
++            snat_dest = (struct ip_vs_dest_snat *)dest;
++            if (dest->vfwmark == svc->fwmark /* the same service */
++                && (snat_dest->dest.af == svc->af)
++                && ip_vs_addr_equal(svc->af, &snat_dest->saddr, saddr)
++                && ip_vs_addr_equal(svc->af, &snat_dest->daddr, daddr)
++                && inet_mask_len(snat_dest->smask.ip) == smask
++                && inet_mask_len(snat_dest->dmask.ip) == dmask
++                && ip_vs_addr_equal(svc->af, &dest->addr, gw)
++                &&  !strcmp(snat_dest->out_dev, out_dev)) {
++                return snat_dest;
++            }
++        }
++/*
++          * Try to purge the destination from trash if not referenced
++          */
++        if (atomic_read(&dest->refcnt) == 1) {
++            IP_VS_DBG_BUF(3, "Removing destination %u/%s:%u from trash\n",
++                      dest->vfwmark,
++                      IP_VS_DBG_ADDR(svc->af, &dest->addr),
++                      ntohs(dest->port));
++            list_del(&dest->n_list);
++            ip_vs_dst_reset(dest);
++            __ip_vs_unbind_svc(dest);
++
++            /* Delete dest dedicated statistic varible which is percpu type */
++            ip_vs_del_stats(dest->stats);
++            kfree(dest);
++        }
++    }
++
++    return NULL;
++}
++
++
+ /*
+  *  Lookup dest by {svc,addr,port} in the destination trash.
+  *  The destination trash is used to hold the destinations that are removed
+@@ -810,6 +903,42 @@ static void ip_vs_trash_cleanup(void)
+ }
+ 
+ /*
++  * Update snat rule part of a snat dest
++  */
++static void __ip_vs_update_snat_dest(struct ip_vs_service *svc,
++                                     struct ip_vs_dest_snat *snat_dest,
++                                     struct ip_vs_snat_dest_user_kern *udest)
++{
++    union nf_inet_addr tmp;
++
++    EnterFunction(2);
++    ip_vs_addr_copy(svc->af, &snat_dest->saddr, &udest->saddr);
++    tmp.ip = inet_make_mask(udest->smask);
++    ip_vs_addr_copy(svc->af, &snat_dest->smask, &tmp);
++
++    ip_vs_addr_copy(svc->af, &snat_dest->daddr, &udest->daddr);
++    tmp.ip = inet_make_mask(udest->dmask);
++    ip_vs_addr_copy(svc->af, &snat_dest->dmask, &tmp);
++
++    //ip_vs_addr_copy(svc->af, &snat_dest->gateway, &udest->gw);
++
++    ip_vs_addr_copy(svc->af, &snat_dest->minip, &udest->minip);
++
++    ip_vs_addr_copy(svc->af, &snat_dest->maxip, &udest->maxip);
++
++    ip_vs_addr_copy(svc->af, &snat_dest->new_gateway, &udest->new_gw);
++
++    snat_dest->ip_sel_algo = (u8)udest->algo;
++
++    strcpy(snat_dest->out_dev, udest->out_dev);
++
++    memset(snat_dest->out_dev_mask, 0, sizeof(snat_dest->out_dev_mask));
++    memset(snat_dest->out_dev_mask, 0xFF, strlen(snat_dest->out_dev)); /* fix me */
++    LeaveFunction(2);
++}
++
++
++/*
+  *	Update a destination in the given service
+  */
+ static void
+@@ -868,6 +997,7 @@ __ip_vs_update_dest(struct ip_vs_service *svc,
+ 		dest->flags &= ~IP_VS_DEST_F_OVERLOAD;
+ 	dest->u_threshold = udest->u_threshold;
+ 	dest->l_threshold = udest->l_threshold;
++
+ }
+ 
+ /*
+@@ -888,19 +1018,30 @@ ip_vs_new_dest(struct ip_vs_service *svc, struct ip_vs_dest_user_kern *udest,
+ 		atype = ipv6_addr_type(&udest->addr.in6);
+ 		if ((!(atype & IPV6_ADDR_UNICAST) ||
+ 		     atype & IPV6_ADDR_LINKLOCAL) &&
+-		    !__ip_vs_addr_is_local_v6(&udest->addr.in6))
++    	    !__ip_vs_addr_is_local_v6(&udest->addr.in6)) {
++    	        IP_VS_ERR_RL("AF_INET6 address type error.\n");
+ 			return -EINVAL;
++    	    }
+ 	} else
+ #endif
+ 	{
++        if (udest->addr.ip != 0) {
+ 		atype = inet_addr_type(&init_net, udest->addr.ip);
+-		if (atype != RTN_LOCAL && atype != RTN_UNICAST)
++    	    if (atype != RTN_LOCAL && atype != RTN_UNICAST) {
++    	        IP_VS_ERR_RL("AF_INET address type error.\n");
+ 			return -EINVAL;
+ 	}
++    	}
++    }
+ 
++    if (NOT_SNAT_SVC(svc)) {
+ 	dest = kzalloc(sizeof(struct ip_vs_dest), GFP_ATOMIC);
++    } else {
++        dest = kzalloc(sizeof(struct ip_vs_dest_snat), GFP_ATOMIC);
++    }
++
+ 	if (dest == NULL) {
+-		pr_err("%s(): no memory.\n", __func__);
++        IP_VS_ERR_RL(" no memory.\n");
+ 		return -ENOMEM;
+ 	}
+ 
+@@ -917,17 +1058,22 @@ ip_vs_new_dest(struct ip_vs_service *svc, struct ip_vs_dest_user_kern *udest,
+ 	atomic_set(&dest->persistconns, 0);
+ 	atomic_set(&dest->refcnt, 0);
+ 
++    if (IS_SNAT_SVC(svc)) {
++        struct ip_vs_dest_snat *snat_dest = (struct ip_vs_dest_snat *)dest;
++        INIT_LIST_HEAD(&snat_dest->rule_list);
++    }
+ 	INIT_LIST_HEAD(&dest->d_list);
+ 	spin_lock_init(&dest->dst_lock);
+ 
+ 	/* Init statistic */
+ 	ret = ip_vs_new_stats(&(dest->stats));
+-	if(ret)
++    if (ret) {
++        IP_VS_ERR_RL("ip_vs_new_stats fail [%d]\n", ret);
+ 		goto out_err;
++    }
+ 
+ 	__ip_vs_update_dest(svc, dest, udest);
+ 
+-
+ 	*dest_p = dest;
+ 
+ 	LeaveFunction(2);
+@@ -939,6 +1085,149 @@ out_err:
+ }
+ 
+ /*
++ *	Create a snat destination for the given service
++ */
++static int
++ip_vs_new_snat_dest(struct ip_vs_service *svc,
++                     struct ip_vs_snat_dest_user_kern *udest,
++                     struct ip_vs_dest_snat **dest_p)
++{
++    int ret = 0;
++    struct ip_vs_dest_user_kern pure_dest;
++    EnterFunction(2);
++    memset(&pure_dest, 0, sizeof(pure_dest));
++    pure_dest.conn_flags = udest->conn_flags;
++    /* udest->saddr or udest->daddr may be net address, not host ip address */
++    ip_vs_addr_copy(svc->af, &pure_dest.addr, &udest->gw);
++    ret = ip_vs_new_dest(svc, &pure_dest, (struct ip_vs_dest **)dest_p);
++    if (ret) {
++        IP_VS_ERR_RL("[snat] ip_vs_new_dest failed, [%d]\n", ret);
++        return ret;
++    }
++    __ip_vs_update_snat_dest(svc, *dest_p, udest);
++    LeaveFunction(2);
++    return 0;
++}
++
++
++/**
++  * add a snat dest into an existing service
++  */
++static int
++ip_vs_add_snat_dest(struct ip_vs_service *svc,
++                    struct ip_vs_snat_dest_user_kern *usnat_dest_data)
++{
++    int ret;
++    struct ip_vs_dest_snat *snat_dest;
++    struct ip_vs_dest *pure_dest;
++    union nf_inet_addr saddr;
++    union nf_inet_addr daddr;
++    union nf_inet_addr gw;
++    u32 smask, dmask;
++    char out_dev[IP_VS_IFNAME_MAXLEN] = {0};
++
++    struct ip_vs_dest_user_kern tmp_dest;
++
++    EnterFunction(2);
++    if (NOT_SNAT_SVC(svc)) {
++        IP_VS_ERR_RL("[snat] isn't snat service\n");
++        return -EINVAL;
++    }
++
++    ip_vs_addr_copy(svc->af, &saddr, &usnat_dest_data->saddr);
++    smask = usnat_dest_data->smask;
++    ip_vs_addr_copy(svc->af, &daddr, &usnat_dest_data->daddr);
++    dmask = usnat_dest_data->dmask;
++    ip_vs_addr_copy(svc->af, &gw, &usnat_dest_data->gw);
++    strcpy(out_dev, usnat_dest_data->out_dev);
++   /* Check if the dest already exists in the list */
++    snat_dest = ip_vs_lookup_snat_dest(svc, &saddr, smask, &daddr, dmask, &gw, out_dev);
++    if (snat_dest != NULL) {
++        IP_VS_ERR_RL("[snat] snat dest already exists\n");
++        return -EEXIST;
++    }
++
++   /*
++     * Check if the dest already exists in the trash and
++     * is from the same service
++     */
++    snat_dest = ip_vs_trash_get_snat_dest(svc, &saddr, smask, &daddr, dmask, &gw, out_dev);
++    if (snat_dest != NULL) {
++        pure_dest = (struct ip_vs_dest *)snat_dest;
++        IP_VS_DBG_BUF(3, "Get snat destination -F %s/%u -T %s/%u -W %s --oif %s from trash, "
++                "dest->refcnt=%d, service -f [%u]\n",
++                IP_VS_DBG_ADDR(svc->af, &saddr), smask,
++                IP_VS_DBG_ADDR(svc->af, &daddr), dmask,
++                IP_VS_DBG_ADDR(svc->af, &gw),
++                out_dev,
++                atomic_read(&pure_dest->refcnt),
++                pure_dest->vfwmark);
++
++        memset(&tmp_dest, 0, sizeof(tmp_dest));
++        /* set connection flag to ip_vs_dest.conn_flags */
++        tmp_dest.conn_flags = usnat_dest_data->conn_flags;
++        /* set gateway address to ip_vs_dest.addr */
++        ip_vs_addr_copy(svc->af, &tmp_dest.addr, &usnat_dest_data->gw);
++        /* update pure dest parts */
++        __ip_vs_update_dest(svc, pure_dest, &tmp_dest);
++        /* update snat rule dest parts */
++        __ip_vs_update_snat_dest(svc, snat_dest, usnat_dest_data);
++
++        /* Get the destination from the trash */
++        list_del(&pure_dest->n_list);
++
++        /* Reset the statistic value */
++        ip_vs_zero_stats(pure_dest->stats);
++        write_lock_bh(&__ip_vs_svc_lock);
++        /* Wait until all other svc users go away.*/
++        IP_VS_WAIT_WHILE(atomic_read(&svc->usecnt) > 1);
++        list_add(&pure_dest->n_list, &svc->destinations);
++        svc->num_dests++;
++
++        /* call the update_service function of its scheduler */
++        if (svc->scheduler->update_service)
++            svc->scheduler->update_service(svc);
++
++        write_unlock_bh(&__ip_vs_svc_lock);
++        LeaveFunction(2);
++        return 0;
++    }
++
++   /*
++     * Allocate and initialize the dest structure
++     */
++    ret = ip_vs_new_snat_dest(svc, usnat_dest_data, &snat_dest);
++    if (ret) {
++        return ret;
++    }
++    pure_dest = (struct ip_vs_dest *)snat_dest;
++   /*
++     * Add the dest entry into the list
++     */
++    atomic_inc(&pure_dest->refcnt);
++
++    write_lock_bh(&__ip_vs_svc_lock);
++
++   /*
++     * Wait until all other svc users go away.
++     */
++    IP_VS_WAIT_WHILE(atomic_read(&svc->usecnt) > 1);
++
++    list_add(&pure_dest->n_list, &svc->destinations);
++    svc->num_dests++;
++
++    /* call the update_service function of its scheduler */
++    if (svc->scheduler->update_service)
++        svc->scheduler->update_service(svc);
++
++    write_unlock_bh(&__ip_vs_svc_lock);
++
++    LeaveFunction(2);
++
++    return 0;
++}
++
++/*
+  *	Add a destination into an existing service
+  */
+ static int
+@@ -1051,6 +1340,59 @@ ip_vs_add_dest(struct ip_vs_service *svc, struct ip_vs_dest_user_kern *udest)
+ 	return 0;
+ }
+ 
++
++/*
++  *	Edit a snat destination in the given service
++  */
++static int
++ip_vs_edit_snat_dest(struct ip_vs_service *svc,
++						struct ip_vs_snat_dest_user_kern *usnat_dest_data)
++{
++    struct ip_vs_dest_snat *snat_dest;
++    struct ip_vs_dest *pure_dest;
++    union nf_inet_addr daddr;
++    union nf_inet_addr saddr;
++    union nf_inet_addr gw;
++    char out_dev[IP_VS_IFNAME_MAXLEN] = {0};
++    struct ip_vs_dest_user_kern tmp_pure_dest;
++
++    u32 dmask = usnat_dest_data->dmask;
++    u32 smask = usnat_dest_data->smask;
++
++    EnterFunction(2);
++    ip_vs_addr_copy(svc->af, &saddr, &usnat_dest_data->saddr);
++    ip_vs_addr_copy(svc->af, &daddr, &usnat_dest_data->daddr);
++    ip_vs_addr_copy(svc->af, &gw, &usnat_dest_data->gw);
++    strcpy(out_dev, usnat_dest_data->out_dev);
++
++    /* Lookup the destination list */
++    snat_dest = ip_vs_lookup_snat_dest(svc, &saddr, smask, &daddr, dmask, &gw, out_dev);
++    if (snat_dest == NULL) {
++    	IP_VS_ERR_RL("[snat] dest doesn't exist\n");
++    	return -ENOENT;
++    }
++    pure_dest = (struct ip_vs_dest *)snat_dest;
++    memset(&tmp_pure_dest, 0, sizeof(tmp_pure_dest));
++    tmp_pure_dest.conn_flags = usnat_dest_data->conn_flags;
++    __ip_vs_update_dest(svc, pure_dest, &tmp_pure_dest);
++    __ip_vs_update_snat_dest(svc, snat_dest, usnat_dest_data);
++
++    write_lock_bh(&__ip_vs_svc_lock);
++
++    /* Wait until all other svc users go away */
++    IP_VS_WAIT_WHILE(atomic_read(&svc->usecnt) > 1);
++
++    /* call the update_service, because server weight may be changed */
++    if (svc->scheduler->update_service)
++    	svc->scheduler->update_service(svc);
++
++    write_unlock_bh(&__ip_vs_svc_lock);
++
++    LeaveFunction(2);
++
++    return 0;
++}
++
+ /*
+  *	Edit a destination in the given service
+  */
+@@ -1166,6 +1508,63 @@ static void __ip_vs_unlink_dest(struct ip_vs_service *svc,
+ }
+ 
+ /*
++ *	Delete a snat destination server in the given service
++ */
++static int
++ip_vs_del_snat_dest(struct ip_vs_service *svc,
++					struct ip_vs_snat_dest_user_kern *usnat_dest_data)
++{
++    struct ip_vs_dest_snat *snat_dest;
++    struct ip_vs_dest *pure_dest;
++    union nf_inet_addr daddr;
++    union nf_inet_addr saddr;
++    union nf_inet_addr gw;
++    char out_dev[IP_VS_IFNAME_MAXLEN] = {0};
++
++    u32 dmask = usnat_dest_data->dmask;
++    u32 smask = usnat_dest_data->smask;
++
++    EnterFunction(2);
++    ip_vs_addr_copy(svc->af, &saddr, &usnat_dest_data->saddr);
++    ip_vs_addr_copy(svc->af, &daddr, &usnat_dest_data->daddr);
++    ip_vs_addr_copy(svc->af, &gw, &usnat_dest_data->gw);
++    strcpy(out_dev, usnat_dest_data->out_dev);
++
++    /*
++     *  Lookup the destination list
++     */
++    snat_dest = ip_vs_lookup_snat_dest(svc, &saddr, smask, &daddr, dmask, &gw, out_dev);
++    if (snat_dest == NULL) {
++        IP_VS_ERR_RL("[snat] snat dest not exist\n");
++    	return -ENOENT;
++    }
++    pure_dest = (struct ip_vs_dest *)snat_dest;
++
++    write_lock_bh(&__ip_vs_svc_lock);
++
++    /*
++     *      Wait until all other svc users go away.
++     */
++    IP_VS_WAIT_WHILE(atomic_read(&svc->usecnt) > 1);
++
++    /*
++     *      Unlink dest from the service
++     */
++    __ip_vs_unlink_dest(svc, pure_dest, 1);
++
++    write_unlock_bh(&__ip_vs_svc_lock);
++
++    /*
++     *      Delete the destination
++     */
++    __ip_vs_del_dest(pure_dest);
++
++    LeaveFunction(2);
++
++    return 0;
++}
++
++/*
+  *	Delete a destination server in the given service
+  */
+ static int
+@@ -1179,7 +1578,7 @@ ip_vs_del_dest(struct ip_vs_service *svc, struct ip_vs_dest_user_kern *udest)
+ 	dest = ip_vs_lookup_dest(svc, &udest->addr, dport);
+ 
+ 	if (dest == NULL) {
+-		IP_VS_DBG(1, "%s(): destination not found!\n", __func__);
++		IP_VS_ERR_RL(" dest not exist\n");
+ 		return -ENOENT;
+ 	}
+ 
+@@ -2199,6 +2598,16 @@ static struct ctl_table vs_vars[] = {
+ 	 .extra1 = &ip_vs_entry_min,	/* zero */
+ 	 .extra2 = &ip_vs_entry_max,	/* one */
+ 	 },
++  {
++   .procname = "fast_response_xmit_inside",
++   .data = &sysctl_ip_vs_fast_xmit_inside,
++   .maxlen = sizeof(int),
++   .mode = 0644,
++   .proc_handler = &proc_dointvec_minmax,
++   .strategy = &sysctl_intvec,
++   .extra1 = &ip_vs_entry_min,  /* zero */
++   .extra2 = &ip_vs_entry_max,  /* one */
++   },
+ 	{.ctl_name = 0}
+ };
+ 
+@@ -2524,10 +2933,14 @@ static struct ip_vs_estats_entry ext_stats[] = {
+ 	IP_VS_ESTATS_ITEM("defence_udp_drop", DEFENCE_UDP_DROP),
+ 	IP_VS_ESTATS_ITEM("fast_xmit_reject", FAST_XMIT_REJECT),
+ 	IP_VS_ESTATS_ITEM("fast_xmit_pass", FAST_XMIT_PASS),
++  IP_VS_ESTATS_ITEM("fast_xmit_failed", FAST_XMIT_FAILED),
+ 	IP_VS_ESTATS_ITEM("fast_xmit_skb_copy", FAST_XMIT_SKB_COPY),
+ 	IP_VS_ESTATS_ITEM("fast_xmit_no_mac", FAST_XMIT_NO_MAC),
+ 	IP_VS_ESTATS_ITEM("fast_xmit_synproxy_save", FAST_XMIT_SYNPROXY_SAVE),
+ 	IP_VS_ESTATS_ITEM("fast_xmit_dev_lost", FAST_XMIT_DEV_LOST),
++  IP_VS_ESTATS_ITEM("fast_xmit_reject_inside", FAST_XMIT_REJECT_INSIDE),
++  IP_VS_ESTATS_ITEM("fast_xmit_pass_inside", FAST_XMIT_PASS_INSIDE),
++  IP_VS_ESTATS_ITEM("fast_xmit_failed_inside", FAST_XMIT_FAILED_INSIDE),
+ 	IP_VS_ESTATS_ITEM("rst_in_syn_sent", RST_IN_SYN_SENT),
+ 	IP_VS_ESTATS_ITEM("rst_out_syn_sent", RST_OUT_SYN_SENT),
+ 	IP_VS_ESTATS_ITEM("rst_in_established", RST_IN_ESTABLISHED),
+@@ -3220,6 +3633,7 @@ static const struct nla_policy ip_vs_cmd_policy[IPVS_CMD_ATTR_MAX + 1] = {
+ 	[IPVS_CMD_ATTR_TIMEOUT_TCP_FIN] = {.type = NLA_U32},
+ 	[IPVS_CMD_ATTR_TIMEOUT_UDP] = {.type = NLA_U32},
+ 	[IPVS_CMD_ATTR_LADDR] = {.type = NLA_NESTED},
++	[IPVS_CMD_ATTR_SNATDEST] = {.type = NLA_NESTED},
+ };
+ 
+ /* Policy used for attributes in nested attribute IPVS_CMD_ATTR_DAEMON */
+@@ -3260,8 +3674,32 @@ static const struct nla_policy ip_vs_dest_policy[IPVS_DEST_ATTR_MAX + 1] = {
+ 	[IPVS_DEST_ATTR_INACT_CONNS] = {.type = NLA_U32},
+ 	[IPVS_DEST_ATTR_PERSIST_CONNS] = {.type = NLA_U32},
+ 	[IPVS_DEST_ATTR_STATS] = {.type = NLA_NESTED},
++	[IPVS_DEST_ATTR_SNATRULE] = {.type = NLA_NESTED},
+ };
+ 
++/* Policy used for attributes in nested attribute IPVS_CMD_ATTR_SNAT_DEAST */
++static const struct nla_policy ip_vs_snat_dest_policy[IPVS_SNAT_DEST_ATTR_MAX + 1] = {
++        [IPVS_SNAT_DEST_ATTR_FADDR] = {.type = NLA_BINARY,
++									.len = sizeof(union nf_inet_addr)},
++        [IPVS_SNAT_DEST_ATTR_FMASK] = {.type = NLA_U32},
++        [IPVS_SNAT_DEST_ATTR_DADDR] = {.type = NLA_BINARY,
++									.len = sizeof(union nf_inet_addr)},
++        [IPVS_SNAT_DEST_ATTR_DMASK] = {.type = NLA_U32},
++        [IPVS_SNAT_DEST_ATTR_GW] = {.type = NLA_BINARY,
++									.len = sizeof(union nf_inet_addr)},
++        [IPVS_SNAT_DEST_ATTR_MINIP] = {.type = NLA_BINARY,
++										.len = sizeof(union nf_inet_addr)},
++        [IPVS_SNAT_DEST_ATTR_MAXIP] = {.type = NLA_BINARY,
++										.len = sizeof(union nf_inet_addr)},
++        [IPVS_SNAT_DEST_ATTR_ALGO] = {.type = NLA_U8},
++        [IPVS_SNAT_DEST_ATTR_NEWGW] = {.type = NLA_BINARY,
++										.len = sizeof(union nf_inet_addr)},
++        [IPVS_SNAT_DEST_ATTR_CONNFLAG] = {.type = NLA_U32},
++        [IPVS_SNAT_DEST_ATTR_OUTDEV] = {.type = NLA_STRING,
++										.len = IP_VS_IFNAME_MAXLEN},
++};
++
++
+ static const struct nla_policy ip_vs_laddr_policy[IPVS_LADDR_ATTR_MAX + 1] = {
+ 	[IPVS_LADDR_ATTR_ADDR] = {.type = NLA_BINARY,
+ 				  .len = sizeof(union nf_inet_addr)},
+@@ -3269,6 +3707,38 @@ static const struct nla_policy ip_vs_laddr_policy[IPVS_LADDR_ATTR_MAX + 1] = {
+ 	[IPVS_LADDR_ATTR_CONN_COUNTS] = {.type = NLA_U32},
+ };
+ 
++static int ip_vs_genl_fill_snat_rule(struct sk_buff *skb, int container_type,
++				 struct ip_vs_dest_snat *snat_dest)
++{
++    struct ip_vs_dest *udest = (struct ip_vs_dest *)snat_dest;
++    struct nlattr *nl_stats = nla_nest_start(skb, container_type);
++    EnterFunction(2);
++    if (!nl_stats) {
++        IP_VS_ERR_RL("nl_stats == NULL.\n");
++    	return -EMSGSIZE;
++    }
++
++    NLA_PUT(skb, IPVS_SNAT_DEST_ATTR_FADDR, sizeof(snat_dest->saddr), &snat_dest->saddr);
++    NLA_PUT_U32(skb, IPVS_SNAT_DEST_ATTR_FMASK, inet_mask_len(snat_dest->smask.ip));
++    NLA_PUT(skb, IPVS_SNAT_DEST_ATTR_DADDR, sizeof(snat_dest->saddr), &snat_dest->daddr);
++    NLA_PUT_U32(skb, IPVS_SNAT_DEST_ATTR_DMASK, inet_mask_len(snat_dest->dmask.ip));
++    NLA_PUT(skb, IPVS_SNAT_DEST_ATTR_GW, sizeof(udest->addr), &udest->addr);
++    NLA_PUT(skb, IPVS_SNAT_DEST_ATTR_MINIP, sizeof(snat_dest->minip), &snat_dest->minip);
++    NLA_PUT(skb, IPVS_SNAT_DEST_ATTR_MAXIP, sizeof(snat_dest->maxip), &snat_dest->maxip);
++    NLA_PUT_U8(skb, IPVS_SNAT_DEST_ATTR_ALGO, snat_dest->ip_sel_algo);
++    NLA_PUT(skb, IPVS_SNAT_DEST_ATTR_NEWGW, sizeof(snat_dest->new_gateway), &snat_dest->new_gateway);
++    NLA_PUT_U32(skb, IPVS_SNAT_DEST_ATTR_CONNFLAG, atomic_read(&snat_dest->dest.conn_flags));
++    NLA_PUT_STRING(skb, IPVS_SNAT_DEST_ATTR_OUTDEV, snat_dest->out_dev);
++
++    nla_nest_end(skb, nl_stats);
++    LeaveFunction(2);
++    return 0;
++
++nla_put_failure:
++    nla_nest_cancel(skb, nl_stats);
++    return -EMSGSIZE;
++}
++
+ static int ip_vs_genl_fill_stats(struct sk_buff *skb, int container_type,
+ 				 struct ip_vs_stats *stats)
+ {
+@@ -3502,13 +3972,15 @@ static struct ip_vs_service *ip_vs_genl_find_service(struct nlattr *nla)
+ 					   &usvc.addr, usvc.port);
+ }
+ 
+-static int ip_vs_genl_fill_dest(struct sk_buff *skb, struct ip_vs_dest *dest)
++static int ip_vs_genl_fill_dest(struct sk_buff *skb, struct ip_vs_dest *dest, int is_snat)
+ {
+ 	struct nlattr *nl_dest;
+ 
++        EnterFunction(2);
+ 	nl_dest = nla_nest_start(skb, IPVS_CMD_ATTR_DEST);
+-	if (!nl_dest)
++	if (!nl_dest) {
+ 		return -EMSGSIZE;
++	}
+ 
+ 	NLA_PUT(skb, IPVS_DEST_ATTR_ADDR, sizeof(dest->addr), &dest->addr);
+ 	NLA_PUT_U16(skb, IPVS_DEST_ATTR_PORT, dest->port);
+@@ -3525,11 +3997,20 @@ static int ip_vs_genl_fill_dest(struct sk_buff *skb, struct ip_vs_dest *dest)
+ 	NLA_PUT_U32(skb, IPVS_DEST_ATTR_PERSIST_CONNS,
+ 		    atomic_read(&dest->persistconns));
+ 
+-	if (ip_vs_genl_fill_stats(skb, IPVS_DEST_ATTR_STATS, dest->stats))
++	if (ip_vs_genl_fill_stats(skb, IPVS_DEST_ATTR_STATS, dest->stats)) {
+ 		goto nla_put_failure;
++        }
+ 
+-	nla_nest_end(skb, nl_dest);
++        if (is_snat) {
++            struct ip_vs_dest_snat* snat_dest = (struct ip_vs_dest_snat *)dest;
++            if (ip_vs_genl_fill_snat_rule(skb, IPVS_DEST_ATTR_SNATRULE, snat_dest)) {
++                IP_VS_ERR_RL(" ip_vs_genl_fill_snat_rule error.\n");
++                goto nla_put_failure;
++            }
++        }
+ 
++	nla_nest_end(skb, nl_dest);
++        LeaveFunction(2);
+ 	return 0;
+ 
+       nla_put_failure:
+@@ -3538,18 +4019,22 @@ static int ip_vs_genl_fill_dest(struct sk_buff *skb, struct ip_vs_dest *dest)
+ }
+ 
+ static int ip_vs_genl_dump_dest(struct sk_buff *skb, struct ip_vs_dest *dest,
+-				struct netlink_callback *cb)
++				struct netlink_callback *cb, int is_snat)
+ {
+ 	void *hdr;
+-
++	EnterFunction(2);
+ 	hdr = genlmsg_put(skb, NETLINK_CB(cb->skb).pid, cb->nlh->nlmsg_seq,
+ 			  &ip_vs_genl_family, NLM_F_MULTI, IPVS_CMD_NEW_DEST);
+-	if (!hdr)
++	if (!hdr) {
++	    IP_VS_ERR_RL("%s(): genlmsg_put error.\n", __func__);
+ 		return -EMSGSIZE;
++	}
+ 
+-	if (ip_vs_genl_fill_dest(skb, dest) < 0)
++	if (ip_vs_genl_fill_dest(skb, dest, is_snat) < 0) {
++	    IP_VS_ERR_RL("%s(): ip_vs_genl_fill_dest error.\n", __func__);
+ 		goto nla_put_failure;
+-
++        }
++        LeaveFunction(2);
+ 	return genlmsg_end(skb, hdr);
+ 
+       nla_put_failure:
+@@ -3561,6 +4046,7 @@ static int ip_vs_genl_dump_dests(struct sk_buff *skb,
+ 				 struct netlink_callback *cb)
+ {
+ 	int idx = 0;
++	int is_snat = 0;
+ 	int start = cb->args[0];
+ 	struct ip_vs_service *svc;
+ 	struct ip_vs_dest *dest;
+@@ -3570,18 +4056,24 @@ static int ip_vs_genl_dump_dests(struct sk_buff *skb,
+ 
+ 	/* Try to find the service for which to dump destinations */
+ 	if (nlmsg_parse(cb->nlh, GENL_HDRLEN, attrs,
+-			IPVS_CMD_ATTR_MAX, ip_vs_cmd_policy))
++			IPVS_CMD_ATTR_MAX, ip_vs_cmd_policy)) {
+ 		goto out_err;
++    }
+ 
+ 	svc = ip_vs_genl_find_service(attrs[IPVS_CMD_ATTR_SERVICE]);
+-	if (IS_ERR(svc) || svc == NULL)
++	if (IS_ERR(svc) || svc == NULL) {
+ 		goto out_err;
++	}
++
++    if (IS_SNAT_SVC(svc)) {
++	    is_snat = 1;
++	}
+ 
+ 	/* Dump the destinations */
+ 	list_for_each_entry(dest, &svc->destinations, n_list) {
+ 		if (++idx <= start)
+ 			continue;
+-		if (ip_vs_genl_dump_dest(skb, dest, cb) < 0) {
++		if (ip_vs_genl_dump_dest(skb, dest, cb, is_snat) < 0) {
+ 			idx--;
+ 			goto nla_put_failure;
+ 		}
+@@ -3705,6 +4197,83 @@ static int ip_vs_genl_parse_laddr(struct ip_vs_laddr_user_kern *uladdr,
+ 	return 0;
+ }
+ 
++/* get snat dest info from ipvsadm tools */
++static int ip_vs_genl_parse_snat_dest(struct ip_vs_snat_dest_user_kern *usnat_dest,
++                                struct nlattr* nla, int full_entry)
++{
++    struct nlattr *attrs[IPVS_SNAT_DEST_ATTR_MAX+ 1];
++    struct nlattr *nal_saddr, *nal_daddr, *nal_smask, *nal_dmask;
++    struct nlattr *nal_gw, *nal_minip, *nal_maxip, *nal_algo,
++                        *nal_newgw, *nal_conn_flags, *nal_out_dev;
++    int ret;
++
++    EnterFunction(2);
++    if (NULL == nla) {
++        IP_VS_ERR_RL("[snat] nla == NULL\n");
++        return -EINVAL;
++    }
++
++    ret = nla_parse_nested(attrs, IPVS_SNAT_DEST_ATTR_MAX, nla, ip_vs_snat_dest_policy);
++    if (ret) {
++        IP_VS_ERR_RL("[snat] nla_parse_nested failed,[%d]\n", ret);
++        return -EINVAL;
++    }
++
++    nal_saddr = attrs[IPVS_SNAT_DEST_ATTR_FADDR];
++    nal_smask = attrs[IPVS_SNAT_DEST_ATTR_FMASK];
++    nal_daddr = attrs[IPVS_SNAT_DEST_ATTR_DADDR];
++    nal_dmask = attrs[IPVS_SNAT_DEST_ATTR_DMASK];
++    nal_gw = attrs[IPVS_SNAT_DEST_ATTR_GW];
++    nal_out_dev = attrs[IPVS_SNAT_DEST_ATTR_OUTDEV];
++
++    if (!(nal_saddr && nal_smask && nal_dmask && nal_daddr && nal_gw && nal_out_dev)) {
++        IP_VS_ERR_RL("[snat] basic return EINVAL\n");
++        return -EINVAL;
++    }
++
++    memset(usnat_dest, 0, sizeof(*usnat_dest));
++    nla_memcpy(&usnat_dest->saddr, nal_saddr, sizeof(usnat_dest->saddr));
++    usnat_dest->smask = nla_get_u32(nal_smask);
++    nla_memcpy(&usnat_dest->daddr, nal_daddr, sizeof(usnat_dest->daddr));
++    usnat_dest->dmask = nla_get_u32(nal_dmask);
++    nla_memcpy(&usnat_dest->gw, nal_gw, sizeof(usnat_dest->gw));
++    strcpy(usnat_dest->out_dev, nla_data(nal_out_dev));
++
++    IP_VS_DBG(6, "%s(): usnat_dest->saddr = %pI4\n", __func__, &usnat_dest->saddr.ip);
++    IP_VS_DBG(6, "%s(): usnat_dest->smask = %d\n", __func__, usnat_dest->smask);
++    IP_VS_DBG(6, "%s(): usnat_dest->daddr = %pI4\n", __func__, &usnat_dest->daddr.ip);
++    IP_VS_DBG(6, "%s(): usnat_dest->dmask = %d\n", __func__, usnat_dest->dmask);
++    IP_VS_DBG(6, "%s(): usnat_dest->gw = %pI4\n", __func__, &usnat_dest->gw.ip);
++    IP_VS_DBG(6, "%s(): usnat_dest->out_dev = [%s]\n", __func__, usnat_dest->out_dev);
++
++    if (full_entry) {
++        nal_minip = attrs[IPVS_SNAT_DEST_ATTR_MINIP];
++        nal_maxip = attrs[IPVS_SNAT_DEST_ATTR_MAXIP];
++        nal_algo = attrs[IPVS_SNAT_DEST_ATTR_ALGO];
++        nal_newgw = attrs[IPVS_SNAT_DEST_ATTR_NEWGW];
++        nal_conn_flags = attrs[IPVS_SNAT_DEST_ATTR_CONNFLAG];
++
++        if (!(nal_minip && nal_maxip && nal_algo && nal_newgw && nal_conn_flags)) {
++            IP_VS_ERR_RL("[snat] full_entry return EINVAL\n");
++            return -EINVAL;
++        }
++
++        nla_memcpy(&usnat_dest->minip, nal_minip, sizeof(usnat_dest->minip));
++        nla_memcpy(&usnat_dest->maxip, nal_maxip, sizeof(usnat_dest->maxip));
++        nla_memcpy(&usnat_dest->new_gw, nal_newgw, sizeof(usnat_dest->new_gw));
++        usnat_dest->conn_flags = nla_get_u16(nal_conn_flags) & IP_VS_CONN_F_FWD_MASK;
++        usnat_dest->algo = nla_get_u8(nal_algo);
++
++        IP_VS_DBG(6, "%s(): usnat_dest->minip = %pI4\n", __func__, &usnat_dest->minip.ip);
++        IP_VS_DBG(6, "%s(): usnat_dest->maxip = %pI4\n", __func__,&usnat_dest->maxip.ip);
++        IP_VS_DBG(6, "%s(): usnat_dest->new_gw = %pI4\n", __func__, &usnat_dest->new_gw.ip);
++        IP_VS_DBG(6, "%s(): usnat_dest->conn_flags = %d\n", __func__, usnat_dest->conn_flags);
++        IP_VS_DBG(6, "%s(): usnat_dest->algo = %d\n", __func__, usnat_dest->algo);
++    }
++    LeaveFunction(2);
++    return 0;
++}
++
+ static int ip_vs_genl_parse_dest(struct ip_vs_dest_user_kern *udest,
+ 				 struct nlattr *nla, int full_entry)
+ {
+@@ -3864,10 +4433,11 @@ static int ip_vs_genl_set_cmd(struct sk_buff *skb, struct genl_info *info)
+ 	struct ip_vs_service *svc = NULL;
+ 	struct ip_vs_service_user_kern usvc;
+ 	struct ip_vs_dest_user_kern udest;
++	struct ip_vs_snat_dest_user_kern usnat_dest;
+ 	struct ip_vs_laddr_user_kern uladdr;
+ 
+ 	int ret = 0, cmd;
+-	int need_full_svc = 0, need_full_dest = 0;
++	int need_full_svc = 0, need_full_dest = 0, need_full_snat_dest = 0;
+ 
+ 	cmd = info->genlhdr->cmd;
+ 
+@@ -3920,7 +4490,7 @@ static int ip_vs_genl_set_cmd(struct sk_buff *skb, struct genl_info *info)
+ 	else
+ 		svc = __ip_vs_svc_fwm_get(usvc.af, usvc.fwmark);
+ 
+-	/* Unless we're adding a new service, the service must already exist */
++	/* Unless we're adding a new service, or the service must already exist */
+ 	if ((cmd != IPVS_CMD_NEW_SERVICE) && (svc == NULL)) {
+ 		ret = -ESRCH;
+ 		goto out;
+@@ -3928,7 +4498,8 @@ static int ip_vs_genl_set_cmd(struct sk_buff *skb, struct genl_info *info)
+ 
+ 	/* Destination commands require a valid destination argument. For
+ 	 * adding / editing a destination, we need a full destination
+-	 * specification. */
++	 * specification.
++	 */
+ 	if (cmd == IPVS_CMD_NEW_DEST || cmd == IPVS_CMD_SET_DEST ||
+ 	    cmd == IPVS_CMD_DEL_DEST) {
+ 		if (cmd != IPVS_CMD_DEL_DEST)
+@@ -3949,6 +4520,24 @@ static int ip_vs_genl_set_cmd(struct sk_buff *skb, struct genl_info *info)
+ 			goto out;
+ 	}
+ 
++        /* Snat destination commands require a valid destination argument. For
++	 * adding / editing a snat destination, we need a full destination
++	 * specification.
++	 */
++	if (cmd == IPVS_CMD_NEW_SNATDEST || cmd == IPVS_CMD_SET_SNATDEST
++	    || cmd == IPVS_CMD_DEL_SNATDEST) {
++            if (cmd != IPVS_CMD_DEL_SNATDEST) {
++                need_full_snat_dest = 1;
++            }
++            ret = ip_vs_genl_parse_snat_dest(&usnat_dest,
++                                            info->attrs[IPVS_CMD_ATTR_SNATDEST],
++                                            need_full_snat_dest);
++            if (ret) {
++                IP_VS_ERR_RL("[snat] ip_vs_genl_parse_snat_dest fail, [%d]\n", ret);
++                goto out;
++            }
++	}
++
+ 	switch (cmd) {
+ 	case IPVS_CMD_NEW_SERVICE:
+ 		if (svc == NULL)
+@@ -3980,6 +4569,15 @@ static int ip_vs_genl_set_cmd(struct sk_buff *skb, struct genl_info *info)
+ 	case IPVS_CMD_DEL_LADDR:
+ 		ret = ip_vs_del_laddr(svc, &uladdr);
+ 		break;
++	case IPVS_CMD_NEW_SNATDEST:
++		ret = ip_vs_add_snat_dest(svc, &usnat_dest);
++		break;
++	case IPVS_CMD_SET_SNATDEST:
++		ret = ip_vs_edit_snat_dest(svc, &usnat_dest);
++		break;
++	case IPVS_CMD_DEL_SNATDEST:
++		ret = ip_vs_del_snat_dest(svc, &usnat_dest);
++		break;
+ 	default:
+ 		ret = -EINVAL;
+ 	}
+@@ -4200,6 +4798,24 @@ static struct genl_ops ip_vs_genl_ops[] __read_mostly = {
+ 	 .policy = ip_vs_cmd_policy,
+ 	 .dumpit = ip_vs_genl_dump_laddrs,
+ 	 },
++     {
++      .cmd = IPVS_CMD_NEW_SNATDEST,
++      .flags = GENL_ADMIN_PERM,
++      .policy = ip_vs_cmd_policy,
++      .doit = ip_vs_genl_set_cmd,
++      },
++      {
++      .cmd = IPVS_CMD_SET_SNATDEST,
++      .flags = GENL_ADMIN_PERM,
++      .policy = ip_vs_cmd_policy,
++      .doit = ip_vs_genl_set_cmd,
++      },
++      {
++      .cmd = IPVS_CMD_DEL_SNATDEST,
++      .flags = GENL_ADMIN_PERM,
++      .policy = ip_vs_cmd_policy,
++      .doit = ip_vs_genl_set_cmd,
++      },
+ };
+ 
+ static int __init ip_vs_genl_register(void)
+@@ -4295,3 +4911,4 @@ void ip_vs_control_cleanup(void)
+ 	nf_unregister_sockopt(&ip_vs_sockopts);
+ 	LeaveFunction(2);
+ }
++
+diff --git a/kernel/net/netfilter/ipvs/ip_vs_proto.c b/kernel/net/netfilter/ipvs/ip_vs_proto.c
+index c40552e..d29dd75 100644
+--- a/kernel/net/netfilter/ipvs/ip_vs_proto.c
++++ b/kernel/net/netfilter/ipvs/ip_vs_proto.c
+@@ -247,6 +247,7 @@ int __init ip_vs_protocol_init(void)
+ #ifdef CONFIG_IP_VS_PROTO_ESP
+ 	REGISTER_PROTOCOL(&ip_vs_protocol_esp);
+ #endif
++	REGISTER_PROTOCOL(&ip_vs_protocol_icmp);
+ 	pr_info("Registered protocols (%s)\n", &protocols[2]);
+ 
+ 	return 0;
+diff --git a/kernel/net/netfilter/ipvs/ip_vs_proto_icmp.c b/kernel/net/netfilter/ipvs/ip_vs_proto_icmp.c
+new file mode 100644
+index 0000000..99f41be
+--- /dev/null
++++ b/kernel/net/netfilter/ipvs/ip_vs_proto_icmp.c
+@@ -0,0 +1,210 @@
++#define KMSG_COMPONENT "IPVS"
++#define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
++
++#include <linux/ip.h>
++#include <linux/kernel.h>
++#include <linux/icmp.h>
++
++#include <net/ip_vs.h>
++#include <net/ip.h>
++
++static struct ip_vs_conn *icmp_conn_in_get(int af, const struct sk_buff *skb,
++        struct ip_vs_protocol *pp,
++        const struct ip_vs_iphdr *iph,
++        unsigned int proto_off, int inverse,
++        int *res_dir) {
++    struct ip_vs_conn *cp;
++    struct icmphdr _icmph, *ic;
++
++    ic = skb_header_pointer(skb, proto_off, sizeof (_icmph), &_icmph);
++    if ((ic == NULL) || (ICMP_ECHOREPLY != ic->type)) {
++        return NULL;
++    }
++
++    IP_VS_DBG(8, "%s %s (%d,%d) %pI4->%pI4\n", __func__, pp->name, ic->type, ntohs(ic->un.echo.id), &iph->saddr, &iph->daddr);
++
++    if (likely(!inverse)) {
++        cp = ip_vs_conn_get(af, iph->protocol,
++                &iph->saddr, ic->un.echo.id,
++                &iph->daddr, ic->un.echo.id, res_dir);
++    } else {
++        cp = ip_vs_conn_get(af, iph->protocol,
++                &iph->daddr, ic->un.echo.id,
++                &iph->saddr, ic->un.echo.id, res_dir);
++    }
++
++    return cp;
++}
++
++static struct ip_vs_conn *icmp_conn_out_get(int af, const struct sk_buff *skb,
++        struct ip_vs_protocol *pp,
++        const struct ip_vs_iphdr *iph,
++        unsigned int proto_off, int inverse,
++        int *res_dir) {
++    struct ip_vs_conn *cp;
++    struct icmphdr _icmph, *ic;
++
++    ic = skb_header_pointer(skb, proto_off, sizeof (_icmph), &_icmph);
++    if ((ic == NULL) || (ICMP_ECHO != ic->type)) {
++        return NULL;
++    }
++
++    IP_VS_DBG(8, "%s %s (%d,%d) %pI4->%pI4\n", __func__, pp->name, ic->type, ntohs(ic->un.echo.id), &iph->saddr, &iph->daddr);
++
++    if (likely(!inverse)) {
++        cp = ip_vs_conn_get(af, iph->protocol,
++                &iph->saddr, ic->un.echo.id,
++                &iph->daddr, ic->un.echo.id, res_dir);
++    } else {
++        cp = ip_vs_conn_get(af, iph->protocol,
++                &iph->daddr, ic->un.echo.id,
++                &iph->saddr, ic->un.echo.id, res_dir);
++    }
++
++    return cp;
++}
++
++static int
++icmp_conn_schedule(int af, struct sk_buff *skb, struct ip_vs_protocol *pp,
++        int *verdict, struct ip_vs_conn **cpp) {
++    struct ip_vs_service *svc;
++    struct icmphdr _icmph, *ic;
++    struct ip_vs_dest *dest;
++    struct ip_vs_iphdr iph;
++
++    *verdict = NF_DROP;
++    ip_vs_fill_iphdr(af, skb_network_header(skb), &iph);
++
++    ic = skb_header_pointer(skb, iph.len, sizeof (_icmph), &_icmph);
++    if (ic == NULL) {
++        return 0;
++    }
++    else if (ICMP_ECHO != ic->type) {
++        *verdict = NF_ACCEPT;
++        return 0;
++    }
++
++    svc = ip_vs_service_get(af, skb->mark, iph.protocol, &iph.daddr, 0);
++    if (svc && IS_SNAT_SVC(svc)) {
++        if (ip_vs_todrop()) {
++            /*
++             It seems that we are very loaded.
++             We have to drop this packet :(
++             */
++            ip_vs_service_put(svc);
++            return 0;
++        }
++
++        /*
++         Let the virtual server select a real server for the
++         incoming connection, and create a connection entry.
++         */
++        dest = svc->scheduler->schedule(svc, skb);
++        if (dest == NULL) {
++            ip_vs_service_put(svc);
++            IP_VS_DBG(1, "Schedule: no dest found.\n");
++            return 0;
++        }
++
++        //*cpp = ip_vs_schedule(svc, skb, 0);
++        *cpp = ip_vs_conn_new(svc->af, iph.protocol,
++                &iph.saddr, ic->un.echo.id,
++                &iph.daddr, ic->un.echo.id,
++                &iph.daddr, ic->un.echo.id,
++                0,
++                dest, skb, 0);
++        if (!*cpp) {
++            *verdict = ip_vs_leave(svc, skb, pp);
++            return 0;
++        }
++        ip_vs_service_put(svc);
++    }
++
++    return 1;
++}
++
++static int
++icmp_snat_handler(struct sk_buff *skb,
++        struct ip_vs_protocol *pp, struct ip_vs_conn *cp) {
++    return 1;
++}
++
++static int
++icmp_dnat_handler(struct sk_buff *skb,
++        struct ip_vs_protocol *pp, struct ip_vs_conn *cp) {
++    return 1;
++}
++
++void
++ip_vs_icmp_debug_packet(struct ip_vs_protocol *pp,
++        const struct sk_buff *skb,
++        int offset, const char *msg) {
++    char buf[128];
++    struct iphdr _iph, *ih;
++
++    ih = skb_header_pointer(skb, offset, sizeof (_iph), &_iph);
++    if (ih == NULL)
++        sprintf(buf, "%s TRUNCATED", pp->name);
++    else
++        sprintf(buf, "%s %pI4->%pI4 dev %s", pp->name, &ih->saddr, &ih->daddr, netdev_name(skb->dev));
++
++    IP_VS_DBG(8, "%s %s %s\n", __func__, msg, buf);
++}
++
++static int icmp_timeouts[IP_VS_ICMP_S_LAST + 1] = {
++    [IP_VS_ICMP_S_NORMAL] = 2 * 60 * HZ,
++    [IP_VS_ICMP_S_LAST] = 2 * HZ,
++};
++
++static const char *const icmp_state_name_table[IP_VS_ICMP_S_LAST + 1] = {
++    [IP_VS_ICMP_S_NORMAL] = "ICMP",
++    [IP_VS_ICMP_S_LAST] = "BUG!",
++};
++
++static int icmp_set_state_timeout(struct ip_vs_protocol *pp, char *sname, int to) {
++    return ip_vs_set_state_timeout(pp->timeout_table, IP_VS_ICMP_S_LAST,
++            icmp_state_name_table, sname, to);
++}
++
++static const char *icmp_state_name(int state) {
++    if (state >= IP_VS_ICMP_S_LAST)
++        return "ERR!";
++    return icmp_state_name_table[state] ? icmp_state_name_table[state] : "?";
++}
++
++static int
++icmp_state_transition(struct ip_vs_conn *cp, int direction,
++        const struct sk_buff *skb, struct ip_vs_protocol *pp) {
++    cp->timeout = pp->timeout_table[IP_VS_ICMP_S_NORMAL];
++    return 1;
++}
++
++static void icmp_init(struct ip_vs_protocol *pp) {
++    pp->timeout_table = icmp_timeouts;
++}
++
++static void icmp_exit(struct ip_vs_protocol *pp) {
++}
++
++struct ip_vs_protocol ip_vs_protocol_icmp = {
++    .name = "ICMP",
++    .protocol = IPPROTO_ICMP,
++    .num_states = IP_VS_ICMP_S_LAST,
++    .dont_defrag = 1,
++    .init = icmp_init,
++    .exit = icmp_exit,
++    .conn_schedule = icmp_conn_schedule,
++    .conn_in_get = icmp_conn_in_get,
++    .conn_out_get = icmp_conn_out_get,
++    .snat_handler = icmp_snat_handler,
++    .dnat_handler = icmp_dnat_handler,
++    .csum_check = NULL,
++    .state_transition = icmp_state_transition,
++    .state_name = icmp_state_name,
++    .register_app = NULL,
++    .unregister_app = NULL,
++    .debug_packet = ip_vs_icmp_debug_packet,
++    .timeout_change = NULL,
++    .set_state_timeout = icmp_set_state_timeout,
++};
++
+diff --git a/kernel/net/netfilter/ipvs/ip_vs_proto_tcp.c b/kernel/net/netfilter/ipvs/ip_vs_proto_tcp.c
+index 3cdc11e..952d4a7 100644
+--- a/kernel/net/netfilter/ipvs/ip_vs_proto_tcp.c
++++ b/kernel/net/netfilter/ipvs/ip_vs_proto_tcp.c
+@@ -712,8 +712,16 @@ static struct sk_buff *tcp_opt_add_toa(struct ip_vs_conn *cp,
+ 		return old_skb;
+ 	}
+ 
++  if (IS_SNAT_CP(cp))
++    return old_skb;
++
+ 	/* skb length and tcp option length checking */
++  if (old_skb->_skb_dst)
+ 	mtu = dst_mtu((struct dst_entry *)old_skb->_skb_dst);
++  else     /* fast_xmit can reach here */
++    mtu = cp->dev_inside ? cp->dev_inside->mtu :
++        sizeof(struct ip_vs_tcpo_addr);
++
+ 	if (old_skb->len > (mtu - sizeof(struct ip_vs_tcpo_addr))) {
+ 		IP_VS_INC_ESTATS(ip_vs_esmib, FULLNAT_ADD_TOA_FAIL_LEN);
+ 		return old_skb;
+@@ -817,7 +825,12 @@ static struct sk_buff *tcp_opt_add_toa_v6(struct ip_vs_conn *cp,
+ 	}
+ 
+ 	/* skb length and tcph length checking */
++  if (old_skb->_skb_dst)
+ 	mtu = dst_mtu((struct dst_entry *)old_skb->_skb_dst);
++  else    /* fast_xmit can reach here */
++    mtu = cp->dev_inside ? cp->dev_inside->mtu :
++        sizeof(struct ip_vs_tcpo_addr_v6);
++
+ 	if (old_skb->len > (mtu - sizeof(struct ip_vs_tcpo_addr_v6))) {
+ 		IP_VS_INC_ESTATS(ip_vs_esmib, FULLNAT_ADD_TOA_FAIL_LEN);
+ 		return old_skb;
+@@ -1394,11 +1407,11 @@ int sysctl_ip_vs_tcp_timeouts[IP_VS_TCP_S_LAST + 1] = {
+ 	[IP_VS_TCP_S_ESTABLISHED] = 90 * HZ,
+ 	[IP_VS_TCP_S_SYN_SENT] = 3 * HZ,
+ 	[IP_VS_TCP_S_SYN_RECV] = 30 * HZ,
+-	[IP_VS_TCP_S_FIN_WAIT] = 3 * HZ,
+-	[IP_VS_TCP_S_TIME_WAIT] = 3 * HZ,
++	[IP_VS_TCP_S_FIN_WAIT] = 7 * HZ,
++	[IP_VS_TCP_S_TIME_WAIT] = 7 * HZ,
+ 	[IP_VS_TCP_S_CLOSE] = 3 * HZ,
+-	[IP_VS_TCP_S_CLOSE_WAIT] = 3 * HZ,
+-	[IP_VS_TCP_S_LAST_ACK] = 3 * HZ,
++	[IP_VS_TCP_S_CLOSE_WAIT] = 7 * HZ,
++	[IP_VS_TCP_S_LAST_ACK] = 7 * HZ,
+ 	[IP_VS_TCP_S_LISTEN] = 2 * 60 * HZ,
+ 	[IP_VS_TCP_S_SYNACK] = 30 * HZ,
+ 	[IP_VS_TCP_S_LAST] = 2 * HZ,
+diff --git a/kernel/net/netfilter/ipvs/ip_vs_snat_sched.c b/kernel/net/netfilter/ipvs/ip_vs_snat_sched.c
+new file mode 100644
+index 0000000..c775456
+--- /dev/null
++++ b/kernel/net/netfilter/ipvs/ip_vs_snat_sched.c
+@@ -0,0 +1,492 @@
++/*
++ * IPVS:        SNAT gateway scheduling module
++ * Authors:     lijian <jlijian3@gmail.com>
++ *
++ *              This program is free software; you can redistribute it and/or
++ *              modify it under the terms of the GNU General Public License
++ *              as published by the Free Software Foundation; either version
++ *              2 of the License, or (at your option) any later version.
++ *
++ * Changes:
++ *
++ */
++
++
++/*
++ *      IPVS SNAT Scheduler structure
++ */
++
++#define KMSG_COMPONENT "IPVS"
++#define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
++
++#include <linux/ip.h>
++#include <linux/module.h>
++#include <linux/kernel.h>
++#include <linux/skbuff.h>
++#include <linux/inetdevice.h>
++#include <net/route.h>
++
++#include <net/ip_vs.h>
++
++
++struct ip_vs_snat_node {
++  struct hlist_node n_hash;
++  __be32 n_key;
++  struct list_head rules;
++};
++
++struct ip_vs_snat_zone {
++  struct ip_vs_snat_zone *z_next;
++  struct hlist_head *z_hash;
++  int z_order;
++  __be32 z_mask;
++#define Z_MASK(z) ((z)->z_mask)
++};
++
++struct ip_vs_snat_table {
++  struct ip_vs_snat_zone *zones[33];
++  struct ip_vs_snat_zone *zone_list;
++};
++
++#define IP_VS_SNAT_TAB_BITS 8
++#define IP_VS_SNAT_TAB_SIZE (1 << IP_VS_SNAT_TAB_BITS)
++#define IP_VS_SNAT_TAB_MASK (IP_VS_SNAT_TAB_SIZE - 1)
++
++static inline u32 ip_vs_node_hash(__be32 key, struct ip_vs_snat_zone *z)
++{
++  u32 h = ntohl(key)>>(32 - z->z_order);
++  h ^= (h>>20);
++  h ^= (h>>10);
++  h ^= (h>>5);
++  h &= IP_VS_SNAT_TAB_MASK;
++  return h;
++}
++
++static inline __be32 ip_vs_snat_zone_key(__be32 addr, struct ip_vs_snat_zone *z)
++{
++  return addr & Z_MASK(z);
++}
++
++static inline unsigned long ip_vs_ifname_cmp(const char *_a,
++						   const char *_b,
++						   const char *_mask)
++{
++	const unsigned long *a = (const unsigned long *)_a;
++	const unsigned long *b = (const unsigned long *)_b;
++	const unsigned long *mask = (const unsigned long *)_mask;
++	unsigned long ret;
++
++	ret = (a[0] ^ b[0]) & mask[0];
++	if (IP_VS_IFNAME_MAXLEN > sizeof(unsigned long))
++		ret |= (a[1] ^ b[1]) & mask[1];
++	if (IP_VS_IFNAME_MAXLEN > 2 * sizeof(unsigned long))
++		ret |= (a[2] ^ b[2]) & mask[2];
++	if (IP_VS_IFNAME_MAXLEN > 3 * sizeof(unsigned long))
++		ret |= (a[3] ^ b[3]) & mask[3];
++	BUILD_BUG_ON(IP_VS_IFNAME_MAXLEN > 4 * sizeof(unsigned long));
++	return ret;
++}
++
++static struct ip_vs_dest *ip_vs_snat_rule_find(struct list_head *head,
++              __be32 saddr,
++              __be32 daddr,
++              __be32 rt_gateway,
++              const char *out_dev)
++{
++  struct ip_vs_dest_snat *rule = NULL; 
++  struct ip_vs_dest *dest = NULL;
++
++  list_for_each_entry(rule, head, rule_list) {
++    dest = (struct ip_vs_dest *)rule;
++    
++    if ((saddr & rule->smask.ip) != rule->saddr.ip)
++      continue;
++
++    if ((daddr & rule->dmask.ip) != rule->daddr.ip)
++      continue;
++
++    if (out_dev && rule->out_dev_mask[0] &&
++        !ip_vs_ifname_cmp(out_dev, rule->out_dev, rule->out_dev_mask)){
++      IP_VS_DBG(7, "SNAT rule_find dev addr:%pI4 rt_gw:%pI4;new_gw:%pI4\n", 
++                &dest->addr.ip, &rt_gateway, &rule->new_gateway.ip);
++      return dest;
++    }
++    
++    if (rt_gateway == dest->addr.ip || dest->addr.ip == 0){
++      IP_VS_DBG(7, "SNAT rule_find gw addr:%pI4 rt_gw:%pI4;new_gw:%pI4\n",
++                &dest->addr.ip, &rt_gateway, &rule->new_gateway.ip);
++      return dest;
++    }
++  }
++
++  return NULL;
++}
++
++static struct ip_vs_dest *
++ip_vs_snat_rule_find_by_skb(struct list_head *head, const struct sk_buff *skb)
++{
++  struct rtable *rt = skb_rtable(skb);
++  struct iphdr *iph = ip_hdr(skb);
++  __be32 rt_gateway = 0;
++  const char *out_dev = NULL;
++
++  if (rt) {
++    rt_gateway = rt->rt_gateway;
++    if (rt->u.dst.dev)
++      out_dev = rt->u.dst.dev->name; 
++  }
++
++  IP_VS_DBG(6, "SNAT lookup rule s:%pI4 d:%pI4 g:%pI4 oif:%s\n",
++          &iph->saddr, &iph->daddr, &rt_gateway, out_dev); 
++  
++  return ip_vs_snat_rule_find(head, iph->saddr,
++              iph->daddr, rt_gateway, out_dev);
++}
++
++
++static struct ip_vs_snat_node *
++ip_vs_snat_node_find(struct ip_vs_snat_zone *z, __be32 key)
++{
++  struct hlist_head *head = &z->z_hash[ip_vs_node_hash(key, z)];
++  struct hlist_node *hnode;
++  struct ip_vs_snat_node *node;
++
++  hlist_for_each_entry(node, hnode, head, n_hash) {
++    IP_VS_DBG(6, "SNAT lookup node z:%d nk:%pI4 k:%pI4\n",
++            z->z_order, &node->n_key, &key);
++    if (node->n_key == key)
++      return node;
++  }
++
++  return NULL;
++}
++
++static struct ip_vs_snat_node *
++ip_vs_snat_node_new(struct ip_vs_snat_zone *z, __be32 key)
++{
++  struct ip_vs_snat_node *node;
++  struct hlist_head *head = &z->z_hash[ip_vs_node_hash(key, z)];
++  
++  node = kmalloc(sizeof(struct ip_vs_snat_node), GFP_ATOMIC);
++  if (!node)
++    return NULL;
++
++  INIT_LIST_HEAD(&node->rules);
++  node->n_key = key;
++ 
++  hlist_add_head(&node->n_hash, head);
++  return node;
++}
++
++static struct ip_vs_snat_zone *
++ip_vs_snat_zone_new(struct ip_vs_snat_table * tbl, int smask_len)
++{
++  int i;
++  struct ip_vs_snat_zone *z;
++  
++  if (!tbl)
++    return NULL;
++  
++  z = kmalloc(sizeof(struct ip_vs_snat_zone), GFP_ATOMIC);
++
++  if (!z)
++    return NULL;
++
++  z->z_hash = kzalloc(sizeof(struct hlist_head) * IP_VS_SNAT_TAB_SIZE, GFP_ATOMIC);
++  if (!z->z_hash) {
++    kfree(z);
++    return NULL;
++  }
++
++  z->z_order = smask_len;
++  z->z_mask = inet_make_mask(smask_len);
++
++  for (i = smask_len+1; i <= 32; i++)
++    if (tbl->zones[i])
++      break;
++
++  if (i > 32) {
++    z->z_next = tbl->zone_list;
++    tbl->zone_list = z;
++  } else {
++    z->z_next = tbl->zones[i]->z_next;
++    tbl->zones[i]->z_next = z;
++  }
++  tbl->zones[smask_len] = z;
++  return z;
++}
++
++static void ip_vs_snat_node_free(struct hlist_head *head)
++{
++  struct hlist_node *hnode, *next;
++  struct ip_vs_snat_node *node;
++
++  if (!head)
++    return;
++
++  hlist_for_each_entry_safe(node, hnode, next, head, n_hash) {
++    hlist_del(hnode);
++    kfree(node);
++  }
++}
++
++static void ip_vs_snat_zone_free(struct ip_vs_snat_zone *z) {
++  int i;
++
++  if (!z)
++    return;
++
++  if (z->z_hash) {
++    for (i = 0; i < IP_VS_SNAT_TAB_SIZE; i++) {
++      ip_vs_snat_node_free(&z->z_hash[i]);
++    }
++    kfree(z->z_hash);
++  }
++}
++
++static void ip_vs_snat_table_free(struct ip_vs_snat_table *tbl)
++{
++  int i;
++
++  if (!tbl)
++    return;
++
++  for (i = 0; i <= 32; i++) {
++    ip_vs_snat_zone_free(tbl->zones[i]);
++  }
++
++  kfree(tbl);
++}
++
++static struct ip_vs_dest *ip_vs_snat_get(int af,
++              struct ip_vs_snat_table *tbl,
++              const struct sk_buff *skb)
++{
++  struct ip_vs_dest *dest;
++  struct ip_vs_snat_zone *z;
++  struct iphdr *iph = ip_hdr(skb);
++
++  for (z = tbl->zone_list; z; z = z->z_next) {
++    struct ip_vs_snat_node *node;
++    __be32 key = ip_vs_snat_zone_key(iph->saddr, z);
++
++    node = ip_vs_snat_node_find(z, key);
++
++    IP_VS_DBG(6, "SNAT lookup zone i:%d mask:%pI4 k:%pI4 %s\n",
++            z->z_order, &z->z_mask, &key,
++            node?"hit":"not hit");
++
++    if (!node)
++      continue;
++
++    if ((dest = ip_vs_snat_rule_find_by_skb(&node->rules, skb)))
++      return dest;
++  }
++
++  return NULL;
++}
++
++static void ip_vs_node_flush(struct hlist_head *head)
++{
++  struct hlist_node *hnode, *next;
++  struct ip_vs_snat_node *node;
++
++  if (!head)
++    return;
++
++  hlist_for_each_entry_safe(node, hnode, next, head, n_hash) {
++    struct ip_vs_dest_snat *rule, *rule_next;
++
++    list_for_each_entry_safe(rule, rule_next, &node->rules, rule_list) {
++      atomic_dec(&rule->dest.refcnt);
++      list_del(&rule->rule_list);
++    }
++
++    hlist_del(hnode);
++    kfree(node);
++  }
++}
++
++static void ip_vs_zone_flush(struct ip_vs_snat_zone *z)
++{
++  int i;
++
++  if (!z || !z->z_hash)
++    return;
++
++  for (i = 0; i < IP_VS_SNAT_TAB_SIZE; i++) {
++    ip_vs_node_flush(&z->z_hash[i]);
++  }
++}
++
++static void ip_vs_snat_flush(struct ip_vs_snat_table *tbl)
++{
++  int i;
++
++  if (!tbl)
++    return;
++
++  for (i = 0; i <= 32; i++) {
++    struct ip_vs_snat_zone *z = tbl->zones[i];
++
++    if (!z)
++      continue;
++
++    ip_vs_zone_flush(z);
++  }
++}
++
++
++static inline void ip_vs_snat_rule_add(struct ip_vs_dest_snat *new_rule, 
++                   struct ip_vs_snat_node * node_head)
++{
++  __be32 dmask_ip = new_rule->dmask.ip;
++  struct ip_vs_dest_snat *rule_pt = NULL; 
++
++  list_for_each_entry(rule_pt, &node_head->rules, rule_list) {
++    if (dmask_ip >= rule_pt->dmask.ip) {
++      break;
++    }
++  }
++
++  if (rule_pt)
++    list_add_tail(&new_rule->rule_list, &rule_pt->rule_list);
++}
++
++static int
++ip_vs_snat_assign(struct ip_vs_snat_table *tbl, struct ip_vs_service *svc)
++{
++	struct ip_vs_dest *dest;  
++
++  list_for_each_entry(dest, &svc->destinations, n_list) {
++    struct ip_vs_snat_zone *z;
++    struct ip_vs_snat_node *node;
++    struct ip_vs_dest_snat *rule = (struct ip_vs_dest_snat *)dest;
++    __be32 key = 0;
++    int smask_len = inet_mask_len(rule->smask.ip);
++
++    z = tbl->zones[smask_len];
++    if (!z && !(z = ip_vs_snat_zone_new(tbl, smask_len))) {
++      IP_VS_ERR_RL("ip_vs_snat_zone_new return NULL\n");
++      return -ENOMEM;
++    }
++    
++    if (rule->saddr.ip) {
++      struct ip_vs_dest *old_dest;
++
++      if (rule->saddr.ip & ~Z_MASK(z)) {
++        IP_VS_ERR_RL("SNAT rule saddr %pI4 not match zmask %pI4\n",
++                &rule->saddr.ip, &Z_MASK(z));
++        return -EINVAL;
++      }
++
++      key = ip_vs_snat_zone_key(rule->saddr.ip, z); 
++      node = ip_vs_snat_node_find(z, key);
++
++      if (!node) {
++        node = ip_vs_snat_node_new(z, key);
++        if (!node) {
++          IP_VS_ERR_RL("ip_vs_snat_zone_new return NULL\n");
++          return -ENOMEM;
++        }
++      }
++    
++      old_dest = ip_vs_snat_rule_find(&node->rules,
++              rule->saddr.ip, rule->daddr.ip,
++              dest->addr.ip, rule->out_dev);
++      if (!old_dest) {
++        atomic_inc(&dest->refcnt);
++        //list_add(&rule->rule_list, &node->rules);
++        ip_vs_snat_rule_add(rule, node);
++      }
++
++      IP_VS_DBG(6, "SNAT rule %s s:%pI4/%d d:%pI4/%d g:%pI4 k:%pI4 new_gw:%pI4\n",
++            old_dest?"exists":"added", &rule->saddr.ip, smask_len,
++            &rule->daddr.ip, inet_mask_len(rule->dmask.ip),
++            &dest->addr.ip, &key, &rule->new_gateway.ip);
++    }
++  }
++
++  return 0;
++}
++
++static int ip_vs_snat_init_svc(struct ip_vs_service *svc)
++{
++  struct ip_vs_snat_table *tbl;
++
++  tbl = kzalloc(sizeof(struct ip_vs_snat_table), GFP_ATOMIC);
++  if (tbl == NULL) {
++    pr_err("%s(): no memory\n", __func__);
++		return -ENOMEM;
++  }
++
++  IP_VS_DBG(6, "SNAT hash table allocated for current service\n");
++
++  svc->sched_data = tbl;
++
++  return ip_vs_snat_assign(tbl, svc);
++}
++
++static int ip_vs_snat_update_svc(struct ip_vs_service *svc)
++{
++  struct ip_vs_snat_table *tbl = svc->sched_data;
++
++  IP_VS_DBG(6, "SNAT update hash table\n");
++  ip_vs_snat_flush(tbl);
++  return ip_vs_snat_assign(tbl, svc);
++}
++
++static int ip_vs_snat_done_svc(struct ip_vs_service *svc)
++{
++  struct ip_vs_snat_table *tbl = svc->sched_data;
++
++  ip_vs_snat_flush(tbl);
++  ip_vs_snat_table_free(tbl);
++  IP_VS_DBG(6, "SNAT hash table released\n");
++  return 0;
++}
++        
++static struct ip_vs_dest *ip_vs_snat_schedule(struct ip_vs_service *svc,
++					    const struct sk_buff *skb)
++{
++  struct ip_vs_dest *dest; 
++  struct ip_vs_snat_table *tbl;
++
++  if (svc->af != AF_INET)
++    return NULL;
++  
++  tbl = (struct ip_vs_snat_table *)svc->sched_data;
++  dest = ip_vs_snat_get(svc->af, tbl, skb);
++
++  if (!dest) {
++    IP_VS_ERR_RL("SNAT: no destination available\n");
++		return NULL;
++  }
++  
++  return dest;
++}
++
++static struct ip_vs_scheduler ip_vs_snat_scheduler = {
++	.name = "snat_sched",
++	.refcnt = ATOMIC_INIT(0),
++	.module = THIS_MODULE,
++	.n_list = LIST_HEAD_INIT(ip_vs_snat_scheduler.n_list),
++	.init_service = ip_vs_snat_init_svc,
++	.done_service = ip_vs_snat_done_svc,
++	.update_service = ip_vs_snat_update_svc,
++	.schedule = ip_vs_snat_schedule,
++};
++
++static int __init ip_vs_snat_init(void)
++{
++	return register_ip_vs_scheduler(&ip_vs_snat_scheduler);
++}
++
++static void __exit ip_vs_snat_cleanup(void)
++{
++	unregister_ip_vs_scheduler(&ip_vs_snat_scheduler);
++}
++
++module_init(ip_vs_snat_init);
++module_exit(ip_vs_snat_cleanup);
++MODULE_LICENSE("GPL");
+diff --git a/kernel/net/netfilter/ipvs/ip_vs_synproxy.c b/kernel/net/netfilter/ipvs/ip_vs_synproxy.c
+index c5de198..d831005 100644
+--- a/kernel/net/netfilter/ipvs/ip_vs_synproxy.c
++++ b/kernel/net/netfilter/ipvs/ip_vs_synproxy.c
+@@ -755,6 +755,34 @@ void ip_vs_synproxy_dnat_handler(struct tcphdr *tcph, struct ip_vs_seq *sp_seq)
+ 	}
+ }
+ 
++static inline void
++ip_vs_synproxy_save_fast_xmit_info(struct sk_buff *skb, struct ip_vs_conn *cp)
++{
++	/* Save info for L2 fast xmit */
++	if(sysctl_ip_vs_fast_xmit_inside && skb->dev &&
++				likely(skb->dev->type == ARPHRD_ETHER) &&
++				skb_mac_header_was_set(skb)) {
++		struct ethhdr *eth = (struct ethhdr *)skb_mac_header(skb);
++
++		if(likely(cp->dev_inside == NULL)) {
++			cp->dev_inside = skb->dev;
++			dev_hold(cp->dev_inside);
++		}
++
++		if (unlikely(cp->dev_inside != skb->dev)) {
++			dev_put(cp->dev_inside);
++			cp->dev_inside = skb->dev;
++			dev_hold(cp->dev_inside);
++		}
++
++		memcpy(cp->src_hwaddr_inside, eth->h_source, ETH_ALEN);
++		memcpy(cp->dst_hwaddr_inside, eth->h_dest, ETH_ALEN);
++		IP_VS_INC_ESTATS(ip_vs_esmib, FAST_XMIT_SYNPROXY_SAVE_INSIDE);
++		IP_VS_DBG_RL("synproxy_save_fast_xmit netdevice:%s\n",
++						netdev_name(skb->dev));
++	}
++}
++
+ /*
+  * Syn-proxy step 3 logic: receive syn-ack from rs
+  * Update syn_proxy_seq.delta and send stored ack skbs
+@@ -809,6 +837,8 @@ ip_vs_synproxy_synack_rcv(struct sk_buff *skb, struct ip_vs_conn *cp,
+ 				     ntohs(th->dest));
+ 		}
+ 
++    ip_vs_synproxy_save_fast_xmit_info(skb, cp); 
++
+ 		/* First: free stored syn skb */
+ 		if ((tmp_skb = xchg(&cp->syn_skb, NULL)) != NULL) {
+ 			kfree_skb(tmp_skb);
+diff --git a/kernel/net/netfilter/ipvs/ip_vs_xmit.c b/kernel/net/netfilter/ipvs/ip_vs_xmit.c
+index 7c096cc..89ae003 100644
+--- a/kernel/net/netfilter/ipvs/ip_vs_xmit.c
++++ b/kernel/net/netfilter/ipvs/ip_vs_xmit.c
+@@ -116,6 +116,70 @@ static struct rtable *__ip_vs_get_out_rt(struct ip_vs_conn *cp, u32 rtos)
+ 	return rt;
+ }
+ 
++static struct rtable *
++__ip_vs_get_snat_out_rt(struct rtable *old_rt,
++    struct ip_vs_conn *cp, u32 rtos)
++{
++	struct rtable *rt;	/* Route to the other host */
++	struct ip_vs_dest *dest = cp->dest;
++  struct ip_vs_dest_snat *rule = (struct ip_vs_dest_snat *)cp->dest;
++
++	if (dest) {
++    if (old_rt &&
++        (old_rt->rt_gateway == rule->new_gateway.ip ||
++         rule->new_gateway.ip == 0))
++      return old_rt;
++
++		spin_lock(&dest->dst_lock);
++		if (!(rt = (struct rtable *)
++		      __ip_vs_dst_check(dest, rtos, 0))) {
++      __be32 dst_ip = rule->new_gateway.ip?rule->new_gateway.ip:dest->addr.ip;
++			struct flowi fl = {
++				.oif = 0,
++				.nl_u = {
++					 .ip4_u = {
++						   .daddr = dst_ip,
++						   .saddr = 0,
++						   .tos = rtos,}},
++			};
++
++			if (ip_route_output_key(&init_net, &rt, &fl)) {
++				spin_unlock(&dest->dst_lock);
++				IP_VS_DBG_RL
++				    ("ip_route_output error, dest: %pI4\n",
++				     &dest->addr.ip);
++				return NULL;
++			}
++			__ip_vs_dst_set(dest, rtos, dst_clone(&rt->u.dst));
++			IP_VS_DBG(10, "SNAT old dst %pI4 new dst %pI4, refcnt=%d, rtos=%X\n",
++          old_rt?&old_rt->rt_gateway:0,
++				  &rt->rt_gateway,
++				  atomic_read(&rt->u.dst.__refcnt), rtos);
++		}
++		spin_unlock(&dest->dst_lock);
++	} else {
++		struct flowi fl = {
++			.oif = 0,
++			.nl_u = {
++				 .ip4_u = {
++					   .daddr = cp->daddr.ip,
++					   .saddr = 0,
++					   .tos = rtos,}},
++		};
++
++    if (old_rt)
++      return old_rt;
++
++		if (ip_route_output_key(&init_net, &rt, &fl)) {
++			IP_VS_DBG_RL("ip_route_output error, dest: %pI4\n",
++				     &cp->daddr.ip);
++			return NULL;
++		}
++	}
++
++	return rt;
++}
++
+ struct rtable *ip_vs_get_rt(union nf_inet_addr *addr, u32 rtos)
+ {
+ 	struct rtable *rt;	/* Route to the other host */
+@@ -304,6 +368,7 @@ static void ip_vs_nat_icmp(struct sk_buff *skb, struct ip_vs_protocol *pp,
+ 	}
+ 
+ 	if (inout) {
++    if (NOT_SNAT_CP(cp))
+ 		iph->saddr = cp->vaddr.ip;
+ 		ip_send_check(iph);
+ 		ciph->daddr = cp->vaddr.ip;
+@@ -644,6 +709,7 @@ int
+ ip_vs_fast_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
+ 						struct ip_vs_conn *cp)
+ {
++  int ret;
+ 	struct ethhdr *eth;
+ 
+ 	if (!cp->indev)
+@@ -671,12 +737,14 @@ ip_vs_fast_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
+ 		ip_hdr(skb)->saddr = cp->vaddr.ip;
+ 		ip_hdr(skb)->daddr = cp->caddr.ip;
+ 	} else {
++    /*
+ 		IP_VS_ERR_RL("L2 fast xmit support fullnat only!\n");
+ 		goto err;
+-		/*if (pp->snat_handler && !pp->snat_handler(skb, pp, cp))
++    */
++		if (pp->snat_handler && !pp->snat_handler(skb, pp, cp))
+ 			goto err;
+ 
+-		ip_hdr(skb)->saddr = cp->vaddr.ip;*/
++		ip_hdr(skb)->saddr = cp->vaddr.ip;
+ 	}
+ 
+ 	ip_send_check(ip_hdr(skb));
+@@ -712,11 +780,12 @@ ip_vs_fast_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
+ 	IP_VS_DBG_RL("%s: send skb to client!\n", __func__);
+ 
+ 	/* Send the packet out */
+-	do {
+-		int ret = dev_queue_xmit(skb);
+-		if (ret != 0)
+-			IP_VS_ERR_RL("dev_queue_xmit failed! code:%d\n", ret);
+-	}while(0);
++  ret = dev_queue_xmit(skb);
++	if (ret != 0) {
++		IP_VS_DBG_RL("dev_queue_xmit failed! code:%d\n", ret);
++		IP_VS_INC_ESTATS(ip_vs_esmib, FAST_XMIT_FAILED);
++		return 0;
++	}
+ 
+ 	IP_VS_INC_ESTATS(ip_vs_esmib, FAST_XMIT_PASS);
+ 	return 0;
+@@ -731,6 +800,7 @@ int
+ ip_vs_fast_response_xmit_v6(struct sk_buff *skb, struct ip_vs_protocol *pp,
+ 						struct ip_vs_conn *cp)
+ {
++  int ret;
+ 	struct ethhdr *eth;
+ 
+ 	if (!cp->indev)
+@@ -796,11 +866,12 @@ ip_vs_fast_response_xmit_v6(struct sk_buff *skb, struct ip_vs_protocol *pp,
+ 
+ 	IP_VS_DBG_RL("%s: send skb to client!\n", __func__);
+ 	/* Send the packet out */
+-	do {
+-		int ret = dev_queue_xmit(skb);
+-		if (ret != 0)
+-			IP_VS_ERR_RL("dev_queue_xmit failed! code:%d\n", ret);
+-	}while(0);
++  ret = dev_queue_xmit(skb);
++	if (ret != 0) {
++		IP_VS_DBG_RL("dev_queue_xmit failed! code:%d\n", ret);
++		IP_VS_INC_ESTATS(ip_vs_esmib, FAST_XMIT_FAILED);
++		return 0;
++	}
+ 
+ 	IP_VS_INC_ESTATS(ip_vs_esmib, FAST_XMIT_PASS);
+ 	return 0;
+@@ -810,6 +881,40 @@ err:
+ }
+ #endif
+ 
++static inline void
++ip_vs_save_xmit_inside_info(struct sk_buff *skb, struct ip_vs_conn *cp)
++{
++	if(!sysctl_ip_vs_fast_xmit_inside)
++		return;
++
++	if(!skb->dev) {
++		IP_VS_DBG_RL("%s(): skb->dev is NULL. \n", __func__);
++		return;
++	}
++	IP_VS_DBG_RL("%s(): netdevice:%s\n", netdev_name(skb->dev), __func__);
++
++	if(likely((skb->dev->type == ARPHRD_ETHER) &&
++					skb_mac_header_was_set(skb))) {
++		struct ethhdr *eth = (struct ethhdr *)skb_mac_header(skb);
++
++		if(unlikely(cp->dev_inside == NULL)) {
++			cp->dev_inside = skb->dev;
++			dev_hold(cp->dev_inside);
++		}
++
++		if (unlikely(cp->dev_inside != skb->dev)) {
++			dev_put(cp->dev_inside);
++			cp->dev_inside = skb->dev;
++			dev_hold(cp->dev_inside);
++		}
++
++		memcpy(cp->src_hwaddr_inside, eth->h_source, ETH_ALEN);
++		memcpy(cp->dst_hwaddr_inside, eth->h_dest, ETH_ALEN);
++	} else {
++		IP_VS_DBG_RL("%s():save dev and mac failed!\n", __func__);
++	}
++}
++
+ /* Response transmit to client
+  * Used for NAT/Local.
+  */
+@@ -820,6 +925,11 @@ ip_vs_normal_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
+ 	struct rtable *rt;
+ 	int mtu;
+ 
++  ip_vs_save_xmit_inside_info(skb, cp);
++
++  if(sysctl_ip_vs_fast_xmit && !ip_vs_fast_response_xmit(skb, pp, cp))
++		return NF_STOLEN; 
++
+ 	/* copy-on-write the packet before mangling it */
+ 	if (!skb_make_writable(skb, ihl))
+ 		goto drop;
+@@ -953,6 +1063,8 @@ ip_vs_fnat_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
+ 	int mtu;
+ 	struct iphdr *iph = ip_hdr(skb);
+ 
++  ip_vs_save_xmit_inside_info(skb, cp);
++
+ 	if(sysctl_ip_vs_fast_xmit && !ip_vs_fast_response_xmit(skb, pp, cp))
+ 		return NF_STOLEN;
+ 
+@@ -1017,6 +1129,8 @@ ip_vs_fnat_response_xmit_v6(struct sk_buff *skb, struct ip_vs_protocol *pp,
+ 	struct rt6_info *rt;	/* Route to the other host */
+ 	int mtu;
+ 
++  ip_vs_save_xmit_inside_info(skb, cp);
++
+ 	if(sysctl_ip_vs_fast_xmit && !ip_vs_fast_response_xmit_v6(skb, pp, cp))
+ 		return NF_STOLEN;
+ 
+@@ -1219,6 +1333,182 @@ ip_vs_bypass_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
+ }
+ #endif
+ 
++/* fullnat mode */
++int
++ip_vs_fast_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
++						struct ip_vs_conn *cp)
++{
++	int ret;
++	struct ethhdr *eth;
++
++	if (!cp->dev_inside)
++		goto err;
++	if (!gso_ok(skb, cp->dev_inside) && (skb->len > cp->dev_inside->mtu))
++		goto err;
++
++	/* Try to reuse skb */
++	if (unlikely(skb_shared(skb) || skb_cloned(skb))) {
++		struct sk_buff *new_skb = skb_copy(skb, GFP_ATOMIC);
++		if(unlikely(new_skb == NULL))
++			goto err;
++
++		/* Drop old skb */
++		kfree_skb(skb);
++		skb = new_skb;
++		IP_VS_INC_ESTATS(ip_vs_esmib, FAST_XMIT_SKB_COPY);
++	}
++
++	/* change ip, port. */
++	if ((cp->flags & IP_VS_CONN_F_FWD_MASK) == IP_VS_CONN_F_FULLNAT) {
++		if (pp->fnat_in_handler && !pp->fnat_in_handler(&skb, pp, cp))
++			goto err;
++
++		ip_hdr(skb)->saddr = cp->laddr.ip;
++		ip_hdr(skb)->daddr = cp->daddr.ip;
++	} else {
++    /*
++		IP_VS_ERR_RL("L2 fast xmit support fullnat only!\n");
++		goto err;
++    */
++		if (pp->dnat_handler && !pp->dnat_handler(skb, pp, cp))
++			goto err;
++
++		ip_hdr(skb)->daddr = cp->daddr.ip;
++	}
++
++	ip_send_check(ip_hdr(skb));
++
++	skb->dev = cp->dev_inside;
++
++	if(unlikely(skb_headroom(skb) < LL_RESERVED_SPACE(skb->dev))){
++		struct sk_buff *skb2;
++
++		IP_VS_ERR_RL("need more headroom! realloc skb\n");
++		skb2 = skb_realloc_headroom(skb, LL_RESERVED_SPACE(skb->dev));
++		if (skb2 == NULL)
++			goto err;
++		kfree_skb(skb);
++		skb = skb2;
++	}
++
++	if(likely(skb_mac_header_was_set(skb))) {
++		eth = eth_hdr(skb);
++		memcpy(eth->h_dest, cp->src_hwaddr_inside, ETH_ALEN);
++		memcpy(eth->h_source, cp->dst_hwaddr_inside, ETH_ALEN);
++		skb->data = (unsigned char *)eth_hdr(skb);
++		skb->len += sizeof(struct ethhdr);
++	} else {
++		eth = (struct ethhdr *)skb_push(skb, sizeof(struct ethhdr));
++		skb_reset_mac_header(skb);
++		memcpy(eth->h_dest, cp->src_hwaddr_inside, ETH_ALEN);
++		memcpy(eth->h_source, cp->dst_hwaddr_inside, ETH_ALEN);
++	}
++	skb->protocol = eth->h_proto = htons(ETH_P_IP);
++	skb->pkt_type = PACKET_OUTGOING;
++
++	IP_VS_DBG_RL("%s: send skb to RS!\n", __func__);
++	/* Send the packet out */
++	ret = dev_queue_xmit(skb);
++	if (ret != 0) {
++		IP_VS_DBG_RL("dev_queue_xmit failed! code:%d\n", ret);
++		IP_VS_INC_ESTATS(ip_vs_esmib, FAST_XMIT_FAILED_INSIDE);
++		return 0;
++	}
++
++	IP_VS_INC_ESTATS(ip_vs_esmib, FAST_XMIT_PASS_INSIDE);
++	return 0;
++err:
++	IP_VS_INC_ESTATS(ip_vs_esmib, FAST_XMIT_REJECT_INSIDE);
++	return 1;
++}
++
++#ifdef CONFIG_IP_VS_IPV6
++/* just for fullnat mode */
++int
++ip_vs_fast_xmit_v6(struct sk_buff *skb, struct ip_vs_protocol *pp,
++						struct ip_vs_conn *cp)
++{
++	int ret;
++	struct ethhdr *eth;
++
++	if (!cp->dev_inside)
++		goto err;
++	if (!gso_ok(skb, cp->dev_inside) && (skb->len > cp->dev_inside->mtu))
++		goto err;
++
++	/* Try to reuse skb if possible */
++	if (unlikely(skb_shared(skb) || skb_cloned(skb))) {
++		struct sk_buff *new_skb = skb_copy(skb, GFP_ATOMIC);
++		if(unlikely(new_skb == NULL))
++			goto err;
++
++		/* Drop old skb */
++		kfree_skb(skb);
++		skb = new_skb;
++		IP_VS_INC_ESTATS(ip_vs_esmib, FAST_XMIT_SKB_COPY);
++	}
++
++	/* change ip, port. */
++	if ((cp->flags & IP_VS_CONN_F_FWD_MASK) == IP_VS_CONN_F_FULLNAT) {
++		if (pp->fnat_in_handler && !pp->fnat_in_handler(&skb, pp, cp))
++			goto err;
++
++		ipv6_hdr(skb)->saddr = cp->laddr.in6;
++		ipv6_hdr(skb)->daddr = cp->daddr.in6;
++	} else {
++		IP_VS_ERR_RL("L2 fast xmit support fullnat only!\n");
++		goto err;
++		/*if (pp->dnat_handler && !pp->dnat_handler(skb, pp, cp))
++			goto err;
++
++		ipv6_hdr(skb)->daddr = cp->daddr.in6;*/
++	}
++
++	skb->dev = cp->dev_inside;
++
++	if(unlikely(skb_headroom(skb) < LL_RESERVED_SPACE(skb->dev))){
++		struct sk_buff *skb2;
++
++		IP_VS_ERR_RL("need more headroom! realloc skb\n");
++		skb2 = skb_realloc_headroom(skb, LL_RESERVED_SPACE(skb->dev));
++		if (skb2 == NULL)
++			goto err;
++		kfree_skb(skb);
++		skb = skb2;
++	}
++
++	if(likely(skb_mac_header_was_set(skb))) {
++		eth = eth_hdr(skb);
++		memcpy(eth->h_dest, cp->src_hwaddr_inside, ETH_ALEN);
++		memcpy(eth->h_source, cp->dst_hwaddr_inside, ETH_ALEN);
++		skb->data = (unsigned char *)eth_hdr(skb);
++		skb->len += sizeof(struct ethhdr);
++	} else {
++		eth = (struct ethhdr *)skb_push(skb, sizeof(struct ethhdr));
++		skb_reset_mac_header(skb);
++		memcpy(eth->h_dest, cp->src_hwaddr_inside, ETH_ALEN);
++		memcpy(eth->h_source, cp->dst_hwaddr_inside, ETH_ALEN);
++	}
++	skb->protocol = eth->h_proto = htons(ETH_P_IPV6);
++	skb->pkt_type = PACKET_OUTGOING;
++
++	IP_VS_DBG_RL("%s: send skb to RS!\n", __func__);
++	/* Send the packet out */
++	ret = dev_queue_xmit(skb);
++	if (ret != 0) {
++		IP_VS_DBG_RL("dev_queue_xmit failed! code:%d\n", ret);
++		IP_VS_INC_ESTATS(ip_vs_esmib, FAST_XMIT_FAILED_INSIDE);
++		return 0;
++	}
++
++	IP_VS_INC_ESTATS(ip_vs_esmib, FAST_XMIT_PASS_INSIDE);
++	return 0;
++err:
++	IP_VS_INC_ESTATS(ip_vs_esmib, FAST_XMIT_REJECT_INSIDE);
++	return 1;
++}
++#endif
++
+ void
+ ip_vs_save_xmit_info(struct sk_buff *skb, struct ip_vs_protocol *pp,
+ 					struct ip_vs_conn *cp)
+@@ -1280,6 +1570,11 @@ ip_vs_nat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
+ 		IP_VS_DBG(10, "filled cport=%d\n", ntohs(*p));
+ 	}
+ 
++  ip_vs_save_xmit_info(skb, pp, cp);
++
++  if(sysctl_ip_vs_fast_xmit_inside && !ip_vs_fast_xmit(skb, pp, cp))
++		return NF_STOLEN;
++
+ 	if (!(rt = __ip_vs_get_out_rt(cp, RT_TOS(iph->tos))))
+ 		goto tx_error_icmp;
+ 
+@@ -1438,6 +1733,11 @@ ip_vs_fnat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
+ 		IP_VS_DBG(10, "filled cport=%d\n", ntohs(*p));
+ 	}
+ 
++  ip_vs_save_xmit_info(skb, pp, cp);
++  
++  if(sysctl_ip_vs_fast_xmit_inside && !ip_vs_fast_xmit(skb, pp, cp))
++		return NF_STOLEN;
++
+ 	if (!(rt = __ip_vs_get_out_rt(cp, RT_TOS(iph->tos))))
+ 		goto tx_error_icmp;
+ 
+@@ -1453,8 +1753,6 @@ ip_vs_fnat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
+ 		goto tx_error;
+ 	}
+ 
+-	ip_vs_save_xmit_info(skb, pp, cp);
+-
+ 	/* copy-on-write the packet before mangling it */
+ 	if (!skb_make_writable(skb, sizeof(struct iphdr)))
+ 		goto tx_error_put;
+@@ -1519,6 +1817,11 @@ ip_vs_fnat_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
+ 		IP_VS_DBG(10, "filled cport=%d\n", ntohs(*p));
+ 	}
+ 
++  ip_vs_save_xmit_info(skb, pp, cp);
++
++	if(sysctl_ip_vs_fast_xmit_inside && !ip_vs_fast_xmit_v6(skb, pp, cp))
++		return NF_STOLEN;
++
+ 	rt = __ip_vs_get_out_rt_v6(cp);
+ 	if (!rt)
+ 		goto tx_error_icmp;
+@@ -1534,8 +1837,6 @@ ip_vs_fnat_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
+ 		goto tx_error;
+ 	}
+ 
+-	ip_vs_save_xmit_info(skb, pp, cp);
+-
+ 	/* copy-on-write the packet before mangling it */
+ 	if (!skb_make_writable(skb, sizeof(struct ipv6hdr)))
+ 		goto tx_error_put;
+@@ -2086,3 +2387,89 @@ ip_vs_icmp_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
+ 	goto tx_error;
+ }
+ #endif
++
++int
++ip_vs_snat_out_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
++		struct ip_vs_protocol *pp)
++{
++	struct rtable *rt;	/* Route to the other host */
++  struct rtable *old_rt = skb_rtable(skb);
++	int mtu;
++	struct iphdr *iph = ip_hdr(skb);
++
++	EnterFunction(10);
++
++	/* check if it is a connection of no-client-port */
++	if (unlikely(cp->flags & IP_VS_CONN_F_NO_CPORT)) {
++		__be16 _pt, *p;
++		p = skb_header_pointer(skb, iph->ihl * 4, sizeof(_pt), &_pt);
++		if (p == NULL)
++			goto tx_error;
++		ip_vs_conn_fill_cport(cp, *p);
++		IP_VS_DBG(10, "filled cport=%d\n", ntohs(*p));
++	}
++  
++  ip_vs_save_xmit_info(skb, pp, cp);
++  
++  if(sysctl_ip_vs_fast_xmit_inside && !ip_vs_fast_xmit(skb, pp, cp))
++		return NF_STOLEN;
++
++	if (!(rt = __ip_vs_get_snat_out_rt(old_rt, cp, RT_TOS(iph->tos))))
++		goto tx_error_icmp;
++
++	/* MTU checking */
++	mtu = dst_mtu(&rt->u.dst);
++	if (!gso_ok(skb, rt->u.dst.dev) && (skb->len > mtu) &&
++					(iph->frag_off & htons(IP_DF))) {
++		ip_rt_put(rt);
++		IP_VS_INC_ESTATS(ip_vs_esmib, XMIT_UNEXPECTED_MTU);
++		icmp_send(skb, ICMP_DEST_UNREACH, ICMP_FRAG_NEEDED, htonl(mtu));
++		IP_VS_DBG_RL_PKT(0, pp, skb, 0,
++				 "ip_vs_snat_out_xmit(): frag needed for");
++		goto tx_error;
++	}
++
++	/* copy-on-write the packet before mangling it */
++	if (!skb_make_writable(skb, sizeof(struct iphdr)))
++		goto tx_error_put;
++  
++	if (skb_cow(skb, rt->u.dst.dev->hard_header_len))
++		goto tx_error_put;
++
++	/* drop old route */
++  if (rt != old_rt) {
++    skb_dst_drop(skb);
++    skb_dst_set(skb, &rt->u.dst);
++  }
++
++	/* mangle the packet */
++	if (pp->fnat_in_handler && !pp->fnat_in_handler(&skb, pp, cp))
++		goto tx_error;
++	ip_hdr(skb)->saddr = cp->laddr.ip;
++	ip_hdr(skb)->daddr = cp->daddr.ip;
++	ip_send_check(ip_hdr(skb));
++
++	IP_VS_DBG_PKT(10, pp, skb, 0, "After SNAT-OUT");
++
++	/* FIXME: when application helper enlarges the packet and the length
++	   is larger than the MTU of outgoing device, there will be still
++	   MTU problem. */
++
++	/* Another hack: avoid icmp_send in ip_fragment */
++	skb->local_df = 1;
++
++	IP_VS_XMIT(PF_INET, skb, rt);
++
++	LeaveFunction(10);
++	return NF_STOLEN;
++
++      tx_error_icmp:
++	dst_link_failure(skb);
++      tx_error:
++	LeaveFunction(10);
++	kfree_skb(skb);
++	return NF_STOLEN;
++      tx_error_put:
++	ip_rt_put(rt);
++	goto tx_error;
++}
+diff --git a/tools/ipvsadm/ipvsadm.c b/tools/ipvsadm/ipvsadm.c
+index 6d694d6..ec32a1b 100644
+--- a/tools/ipvsadm/ipvsadm.c
++++ b/tools/ipvsadm/ipvsadm.c
+@@ -141,7 +141,12 @@
+ #define CMD_ADDLADDR		(CMD_NONE+15)
+ #define CMD_DELLADDR		(CMD_NONE+16)
+ #define CMD_GETLADDR		(CMD_NONE+17)
+-#define CMD_MAX			CMD_GETLADDR
++/* for lvs snat */
++#define CMD_ADDSNAT  (CMD_NONE+18)
++#define CMD_DELSNAT  (CMD_NONE+19)
++#define CMD_EDITSNAT  (CMD_NONE+20)
++
++#define CMD_MAX			CMD_EDITSNAT
+ #define NUMBER_OF_CMD		(CMD_MAX - CMD_NONE)
+ 
+ static const char* cmdnames[] = {
+@@ -162,6 +167,9 @@ static const char* cmdnames[] = {
+ 	"add-laddr" , 
+ 	"del-laddr" , 
+ 	"get-laddr" , 
++	"add-snat",
++	"del-snat",
++	"edit-snat",
+ };
+ 
+ static const char* optnames[] = {
+@@ -169,7 +177,6 @@ static const char* optnames[] = {
+ 	"connection",
+ 	"service-address",
+ 	"scheduler",
+-	"pe",
+ 	"persistent",
+ 	"netmask",
+ 	"real-server",
+@@ -191,6 +198,13 @@ static const char* optnames[] = {
+ 	"pe" , 
+ 	"local-address" , 
+ 	"synproxy" , 
++	"source-address",
++	"dest-address",
++	"gateway",
++	"snat-ip",
++	"algo",
++	"new-gateway",
++	"oif",
+ };
+ 
+ /*
+@@ -203,24 +217,28 @@ static const char* optnames[] = {
+  */
+ static const char commands_v_options[NUMBER_OF_CMD][NUMBER_OF_OPT] =
+ {
+-	/*   -n   -c   svc  -s   -p   -M   -r   fwd  -w   -x   -y   -mc  tot  dmn  -st  -rt  thr  -pc  srt  sid  -ex  ops  pe   laddr syn*/
+-/*ADD*/     {'x', 'x', '+', ' ', ' ', ' ', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', ' ', 'x', 'x', ' '},
+-/*EDIT*/    {'x', 'x', '+', ' ', ' ', ' ', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', ' ', 'x', 'x', ' '},
+-/*DEL*/     {'x', 'x', '+', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'},
+-/*FLUSH*/   {'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'},
+-/*LIST*/    {' ', '1', '1', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', '1', '1', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'x', 'x', 'x', 'x'},
+-/*ADDSRV*/  {'x', 'x', '+', 'x', 'x', 'x', '+', ' ', ' ', ' ', ' ', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'},
+-/*DELSRV*/  {'x', 'x', '+', 'x', 'x', 'x', '+', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'},
+-/*EDITSRV*/ {'x', 'x', '+', 'x', 'x', 'x', '+', ' ', ' ', ' ', ' ', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'},
+-/*TIMEOUT*/ {'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'},
+-/*STARTD*/  {'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', ' ', 'x', 'x', 'x', 'x', 'x', 'x', 'x', ' ', 'x', 'x', 'x', 'x', 'x'},
+-/*STOPD*/   {'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', ' ', 'x', 'x', 'x', 'x', 'x'},
+-/*RESTORE*/ {'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'},
+-/*SAVE*/    {' ', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'},
+-/*ZERO*/    {'x', 'x', ' ', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'},
+-/*ADDLADDR*/{'x', 'x', '+', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', '+', 'x'},
+-/*DELLADDR*/{'x', 'x', '+', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', '+', 'x'},
+-/*GETLADDR*/{'x', 'x', ' ', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'},
++/*   -n   -c   svc  -s   -p   -M   -r   fwd  -w   -x   -y   -mc  tot  dmn  -st  -rt  thr  -pc  srt  sid  -ex  ops  pe   laddr syn -F -T -W -U -O -N -oif */
++/*ADD*/     {'x', 'x', '+', ' ', ' ', ' ', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', ' ', 'x', 'x', ' ', 'x', 'x', 'x', 'x', 'x','x', 'x'},
++/*EDIT*/    {'x', 'x', '+', ' ', ' ', ' ', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', ' ', 'x', 'x', ' ', 'x', 'x', 'x', 'x', 'x','x', 'x'},
++/*DEL*/     {'x', 'x', '+', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x','x', 'x'},
++/*FLUSH*/ {'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x','x', 'x'},
++/*LIST*/    {' ', '1', '1', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', '1', '1', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x','x', 'x'},
++/*ADDSRV*/  {'x', 'x', '+', 'x', 'x', 'x', '+', ' ', ' ', ' ', ' ', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x','x', 'x'},
++/*DELSRV*/  {'x', 'x', '+', 'x', 'x', 'x', '+', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x','x', 'x'},
++/*EDITSRV*/ {'x', 'x', '+', 'x', 'x', 'x', '+', ' ', ' ', ' ', ' ', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x',  'x', 'x', 'x', 'x','x', 'x'},
++/*TIMEOUT*/ {'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x','x', 'x'},
++/*STARTD*/  {'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', ' ', 'x', 'x', 'x', 'x', 'x', 'x', 'x', ' ', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x','x', 'x'},
++/*STOPD*/   {'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', ' ', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x','x', 'x'},
++/*RESTORE*/ {'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x','x', 'x'},
++/*SAVE*/    {' ', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x','x', 'x'},
++/*ZERO*/    {'x', 'x', ' ', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x','x', 'x'},
++/*ADDLADDR*/{'x', 'x', '+', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', '+', 'x', 'x', 'x', 'x', 'x', 'x','x', 'x'},
++/*DELLADDR*/{'x', 'x', '+', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', '+', 'x', 'x', 'x', 'x', 'x', 'x','x', 'x'},
++/*GETLADDR*/{'x', 'x', ' ', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x','x', 'x'},
++
++/*ADDSNAT*/  {'x', 'x', '+', 'x', 'x', 'x', 'x', ' ', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', '+', ' ', ' ', '+', ' ',' ', ' '},
++/*DELSNAT*/  {'x', 'x', '+', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', '+', ' ', ' ', ' ', ' ',' ', ' '},
++/*EDITSNAT*/ {'x', 'x', '+', 'x', 'x', 'x', 'x', ' ', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', '+', ' ', ' ', '+', ' ',' ', ' '},
+ };
+ 
+ /* printing format flags */
+@@ -233,14 +251,23 @@ static const char commands_v_options[NUMBER_OF_CMD][NUMBER_OF_OPT] =
+ #define FMT_PERSISTENTCONN	0x0020
+ #define FMT_NOSORT		0x0040
+ #define FMT_EXACT		0x0080
++#define FMT_SNAT_RULE       0x0100
+ 
+ #define SERVICE_NONE		0x0000
+ #define SERVICE_ADDR		0x0001
+ #define SERVICE_PORT		0x0002
+ 
++#define SNAT_NONE               0x0000
++#define SNAT_ADDR               0x0001
++#define SNAT_MASK               0x0002
++
+ /* default scheduler */
+ #define DEF_SCHED		"wlc"
+ 
++/* default snat src gateway */
++#define DEF_SNAT_SRC_GW  0 /* all isp */
++#define DEF_SANT_NEW_GW 0
++
+ /* default multicast interface name */
+ #define DEF_MCAST_IFN		"eth0"
+ 
+@@ -250,11 +277,19 @@ struct ipvs_command_entry {
+ 	int			cmd;
+ 	ipvs_service_t		svc;
+ 	ipvs_dest_t		dest;
++	ipvs_snat_dest_t      snat_dest;
+ 	ipvs_timeout_t		timeout;
+ 	ipvs_daemon_t		daemon;
+ 	ipvs_laddr_t		laddr;
+ };
+ 
++ /* common use */
++struct ipvs_snat_rule_parse {
++    union nf_inet_addr addr;
++    int mask;
++    u_int16_t af;
++};
++
+ /* Use values outside ASCII range so that if an option has
+  * a short name it can be used as the tag
+  */
+@@ -272,6 +307,7 @@ enum {
+ 	TAG_SORT,
+ 	TAG_NO_SORT,
+ 	TAG_PERSISTENCE_ENGINE,
++	TAG_OUT_DEV,
+ };
+ 
+ /* various parsing helpers & parsing functions */
+@@ -289,11 +325,11 @@ static int parse_service(char *buf, ipvs_service_t *svc);
+ static int parse_netmask(char *buf, u_int32_t *addr);
+ static int parse_timeout(char *buf, int min, int max);
+ static unsigned int parse_fwmark(char *buf);
+-
++static int parse_address_mask(char* buf, struct ipvs_snat_rule_parse *rule);
+ /* check the options based on the commands_v_options table */
+-static void generic_opt_check(int command, int options);
++static void generic_opt_check(int command, unsigned long options);
+ static void set_command(int *cmd, const int newcmd);
+-static void set_option(unsigned int *options, unsigned int option);
++static void set_option(unsigned long *options, unsigned long option);
+ 
+ static void tryhelp_exit(const char *program, const int exit_status);
+ static void usage_exit(const char *program, const int exit_status);
+@@ -314,6 +350,11 @@ static int modprobe_ipvs(void);
+ static void check_ipvs_version(void);
+ static int process_options(int argc, char **argv, int reading_stdin);
+ 
++static void addrmask_to_str(int af, const union nf_inet_addr * addr, unsigned short mask, char * output);
++static void addrpool_to_str(int af, const union nf_inet_addr * minaddr, const union nf_inet_addr * maxaddr, char * output);
++static void addr_to_str(int af, const union nf_inet_addr * addr, char * output);
++static inline char* ip_select_algo_name(unsigned algo);
++
+ 
+ int main(int argc, char **argv)
+ {
+@@ -348,7 +389,7 @@ int main(int argc, char **argv)
+ 
+ static int
+ parse_options(int argc, char **argv, struct ipvs_command_entry *ce,
+-	      unsigned int *options, unsigned int *format)
++	      unsigned long *options, unsigned int *format)
+ {
+ 	int c, parse;
+ 	poptContext context;
+@@ -369,66 +410,60 @@ parse_options(int argc, char **argv, struct ipvs_command_entry *ce,
+ 		{ "version", 'v', POPT_ARG_NONE, NULL, 'v', NULL, NULL },
+ 		{ "restore", 'R', POPT_ARG_NONE, NULL, 'R', NULL, NULL },
+ 		{ "save", 'S', POPT_ARG_NONE, NULL, 'S', NULL, NULL },
+-		{ "start-daemon", '\0', POPT_ARG_STRING, &optarg,
+-		  TAG_START_DAEMON, NULL, NULL },
+-		{ "stop-daemon", '\0', POPT_ARG_STRING, &optarg,
+-		  TAG_STOP_DAEMON, NULL, NULL },
++		{ "start-daemon", '\0', POPT_ARG_STRING, &optarg, TAG_START_DAEMON, NULL, NULL },
++		{ "stop-daemon", '\0', POPT_ARG_STRING, &optarg, TAG_STOP_DAEMON, NULL, NULL },
+ 		{ "add-laddr", 'P', POPT_ARG_NONE, NULL, 'P', NULL, NULL },
+ 		{ "del-laddr", 'Q', POPT_ARG_NONE, NULL, 'Q', NULL, NULL },
+ 		{ "get-laddr", 'G', POPT_ARG_NONE, NULL, 'G', NULL, NULL },
+-
+-		{ "tcp-service", 't', POPT_ARG_STRING, &optarg, 't',
+-		  NULL, NULL },
+-		{ "udp-service", 'u', POPT_ARG_STRING, &optarg, 'u',
+-		  NULL, NULL },
+-		{ "fwmark-service", 'f', POPT_ARG_STRING, &optarg, 'f',
+-		  NULL, NULL },
++		{ "tcp-service", 't', POPT_ARG_STRING, &optarg, 't', NULL, NULL },
++		{ "udp-service", 'u', POPT_ARG_STRING, &optarg, 'u', NULL, NULL },
++		{ "fwmark-service", 'f', POPT_ARG_STRING, &optarg, 'f', NULL, NULL },
+ 		{ "scheduler", 's', POPT_ARG_STRING, &optarg, 's', NULL, NULL },
+-		{ "persistent", 'p', POPT_ARG_STRING|POPT_ARGFLAG_OPTIONAL,
+-		 &optarg, 'p', NULL, NULL },
++		{ "persistent", 'p', POPT_ARG_STRING|POPT_ARGFLAG_OPTIONAL,&optarg, 'p', NULL, NULL },
+ 		{ "netmask", 'M', POPT_ARG_STRING, &optarg, 'M', NULL, NULL },
+-		{ "real-server", 'r', POPT_ARG_STRING, &optarg, 'r',
+-		  NULL, NULL },
++		{ "real-server", 'r', POPT_ARG_STRING, &optarg, 'r', NULL, NULL },
+ 		{ "masquerading", 'm', POPT_ARG_NONE, NULL, 'm', NULL, NULL },
+ 		{ "ipip", 'i', POPT_ARG_NONE, NULL, 'i', NULL, NULL },
+ 		{ "gatewaying", 'g', POPT_ARG_NONE, NULL, 'g', NULL, NULL },
+ 		{ "fullnat" , 'b' , POPT_ARG_NONE, NULL, 'b', NULL, NULL },
+ 		{ "weight", 'w', POPT_ARG_STRING, &optarg, 'w', NULL, NULL },
+-		{ "u-threshold", 'x', POPT_ARG_STRING, &optarg, 'x',
+-		  NULL, NULL },
+-		{ "l-threshold", 'y', POPT_ARG_STRING, &optarg, 'y',
+-		  NULL, NULL },
++		{ "u-threshold", 'x', POPT_ARG_STRING, &optarg, 'x', NULL, NULL },
++		{ "l-threshold", 'y', POPT_ARG_STRING, &optarg, 'y', NULL, NULL },
+ 		{ "numeric", 'n', POPT_ARG_NONE, NULL, 'n', NULL, NULL },
+ 		{ "connection", 'c', POPT_ARG_NONE, NULL, 'c', NULL, NULL },
+-		{ "mcast-interface", '\0', POPT_ARG_STRING, &optarg,
+-		  TAG_MCAST_INTERFACE, NULL, NULL },
++		{ "mcast-interface", '\0', POPT_ARG_STRING, &optarg, TAG_MCAST_INTERFACE, NULL, NULL },
+ 		{ "syncid", '\0', POPT_ARG_STRING, &optarg, 'I', NULL, NULL },
+-		{ "timeout", '\0', POPT_ARG_NONE, NULL, TAG_TIMEOUT,
+-		  NULL, NULL },
++		{ "timeout", '\0', POPT_ARG_NONE, NULL, TAG_TIMEOUT, NULL, NULL },
+ 		{ "daemon", '\0', POPT_ARG_NONE, NULL, TAG_DAEMON, NULL, NULL },
+ 		{ "stats", '\0', POPT_ARG_NONE, NULL, TAG_STATS, NULL, NULL },
+ 		{ "rate", '\0', POPT_ARG_NONE, NULL, TAG_RATE, NULL, NULL },
+-		{ "thresholds", '\0', POPT_ARG_NONE, NULL,
+-		   TAG_THRESHOLDS, NULL, NULL },
+-		{ "persistent-conn", '\0', POPT_ARG_NONE, NULL,
+-		  TAG_PERSISTENTCONN, NULL, NULL },
+-		{ "nosort", '\0', POPT_ARG_NONE, NULL,
+-		   TAG_NO_SORT, NULL, NULL },
++		{ "thresholds", '\0', POPT_ARG_NONE, NULL,TAG_THRESHOLDS, NULL, NULL },
++		{ "persistent-conn", '\0', POPT_ARG_NONE, NULL, TAG_PERSISTENTCONN, NULL, NULL },
++		{ "nosort", '\0', POPT_ARG_NONE, NULL, TAG_NO_SORT, NULL, NULL },
+ 		{ "sort", '\0', POPT_ARG_NONE, NULL, TAG_SORT, NULL, NULL },
+ 		{ "exact", 'X', POPT_ARG_NONE, NULL, 'X', NULL, NULL },
+ 		{ "ipv6", '6', POPT_ARG_NONE, NULL, '6', NULL, NULL },
+ 		{ "ops", 'o', POPT_ARG_NONE, NULL, 'o', NULL, NULL },
+-		{ "pe", '\0', POPT_ARG_STRING, &optarg, TAG_PERSISTENCE_ENGINE,
+-		  NULL, NULL },
++		{ "pe", '\0', POPT_ARG_STRING, &optarg, TAG_PERSISTENCE_ENGINE, NULL, NULL },
+ 		{ "laddr", 'z', POPT_ARG_STRING, &optarg, 'z', NULL, NULL },
+ 		{ "synproxy", 'j' , POPT_ARG_STRING, &optarg, 'j', NULL, NULL },
++		{ "add-snat", 'K', POPT_ARG_NONE, NULL, 'K', NULL, NULL},
++		{ "edit-snat", 'k', POPT_ARG_NONE, NULL, 'k', NULL, NULL},
++		{ "delete-snat", 'H', POPT_ARG_NONE, NULL, 'H', NULL, NULL},
++		{ "from", 'F', POPT_ARG_STRING, &optarg, 'F', NULL, NULL }, /* --from */
++		{ "to", 'T', POPT_ARG_STRING, &optarg, 'T', NULL, NULL }, /* --to */
++		{ "gw", 'W', POPT_ARG_STRING, &optarg, 'W', NULL, NULL }, /* --gw */
++		{ "snat-ip", 'U', POPT_ARG_STRING, &optarg, 'U', NULL, NULL }, /* --source */
++		{ "algo", 'O', POPT_ARG_STRING, &optarg, 'O', NULL, NULL }, /* --algo */
++		{ "new-gw", 'N', POPT_ARG_STRING, &optarg, 'N', NULL, NULL }, /* --new_gw */
++		{ "oif", '\0', POPT_ARG_STRING, &optarg, TAG_OUT_DEV, NULL, NULL},  /* --oif */
+ 		{ NULL, 0, 0, NULL, 0, NULL, NULL }
+ 	};
+ 
+ 	context = poptGetContext("ipvsadm", argc, (const char **)argv,
+ 				 options_table, 0);
+-
+-	if ((c = poptGetNextOpt(context)) < 0)
++        c = poptGetNextOpt(context);
++	if (c < 0)
+ 		tryhelp_exit(argv[0], -1);
+ 
+ 	switch (c) {
+@@ -500,6 +535,15 @@ parse_options(int argc, char **argv, struct ipvs_command_entry *ce,
+ 	case 'G':
+ 		set_command(&ce->cmd, CMD_GETLADDR);
+ 		break;
++    case 'K':
++        set_command(&ce->cmd, CMD_ADDSNAT);
++        break;
++    case 'k':
++        set_command(&ce->cmd, CMD_EDITSNAT);
++        break;
++    case 'H':
++        set_command(&ce->cmd, CMD_DELSNAT);
++        break;
+ 	default:
+ 		tryhelp_exit(argv[0], -1);
+ 	}
+@@ -511,10 +555,10 @@ parse_options(int argc, char **argv, struct ipvs_command_entry *ce,
+ 			set_option(options, OPT_SERVICE);
+ 			ce->svc.protocol =
+ 				(c=='t' ? IPPROTO_TCP : IPPROTO_UDP);
++		        /* get vip, port info after -t/-u options */
+ 			parse = parse_service(optarg, &ce->svc);
+ 			if (!(parse & SERVICE_ADDR))
+-				fail(2, "illegal virtual server "
+-				     "address[:port] specified");
++				fail(2, "illegal virtual server address[:port] specified");
+ 			break;
+ 		case 'f':
+ 			set_option(options, OPT_SERVICE);
+@@ -525,25 +569,25 @@ parse_options(int argc, char **argv, struct ipvs_command_entry *ce,
+ 			ce->svc.af = AF_INET;
+ 			ce->svc.protocol = IPPROTO_TCP;
+ 			ce->svc.fwmark = parse_fwmark(optarg);
++			if (ce->svc.fwmark == 1) {
++			    *format |= FMT_SNAT_RULE;
++			}
+ 			break;
+ 		case 's':
+ 			set_option(options, OPT_SCHEDULER);
+-			strncpy(ce->svc.sched_name,
+-				optarg, IP_VS_SCHEDNAME_MAXLEN);
++			strncpy(ce->svc.sched_name, optarg, IP_VS_SCHEDNAME_MAXLEN);
+ 			break;
+ 		case 'p':
+ 			set_option(options, OPT_PERSISTENT);
+ 			ce->svc.flags |= IP_VS_SVC_F_PERSISTENT;
+-			ce->svc.timeout =
+-				parse_timeout(optarg, 1, MAX_TIMEOUT);
++			ce->svc.timeout = parse_timeout(optarg, 1, MAX_TIMEOUT);
+ 			break;
+ 		case 'M':
+ 			set_option(options, OPT_NETMASK);
+ 			if (ce->svc.af != AF_INET6) {
+ 				parse = parse_netmask(optarg, &ce->svc.netmask);
+ 				if (parse != 1)
+-					fail(2, "illegal virtual server "
+-					     "persistent mask specified");
++				    fail(2, "illegal virtual server persistent mask specified");
+ 			} else {
+ 				ce->svc.netmask = atoi(optarg);
+ 				if ((ce->svc.netmask < 1) || (ce->svc.netmask > 128))
+@@ -557,9 +601,9 @@ parse_options(int argc, char **argv, struct ipvs_command_entry *ce,
+ 			ce->dest.af = t_dest.af;
+ 			ce->dest.addr = t_dest.addr;
+ 			ce->dest.port = t_dest.port;
+-			if (!(parse & SERVICE_ADDR))
+-				fail(2, "illegal real server "
+-				     "address[:port] specified");
++			if (!(parse & SERVICE_ADDR)) {
++			   fail (2, "illegal real server ddress[:port] specified");
++			}
+ 			/* copy vport to dport if not specified */
+ 			if (parse == 1)
+ 				ce->dest.port = ce->svc.port;
+@@ -567,18 +611,22 @@ parse_options(int argc, char **argv, struct ipvs_command_entry *ce,
+ 		case 'i':
+ 			set_option(options, OPT_FORWARD);
+ 			ce->dest.conn_flags = IP_VS_CONN_F_TUNNEL;
++			ce->snat_dest.conn_flags = ce->dest.conn_flags;
+ 			break;
+ 		case 'g':
+ 			set_option(options, OPT_FORWARD);
+ 			ce->dest.conn_flags = IP_VS_CONN_F_DROUTE;
++			ce->snat_dest.conn_flags = ce->dest.conn_flags;
+ 			break;
+ 		case 'b':
+ 			set_option(options, OPT_FORWARD);
+ 			ce->dest.conn_flags = IP_VS_CONN_F_FULLNAT;
++			ce->snat_dest.conn_flags = ce->dest.conn_flags;
+ 			break;
+ 		case 'm':
+ 			set_option(options, OPT_FORWARD);
+ 			ce->dest.conn_flags = IP_VS_CONN_F_MASQ;
++			ce->snat_dest.conn_flags = ce->dest.conn_flags;
+ 			break;
+ 		case 'w':
+ 			set_option(options, OPT_WEIGHT);
+@@ -607,8 +655,7 @@ parse_options(int argc, char **argv, struct ipvs_command_entry *ce,
+ 			break;
+ 		case TAG_MCAST_INTERFACE:
+ 			set_option(options, OPT_MCAST);
+-			strncpy(ce->daemon.mcast_ifn,
+-				optarg, IP_VS_IFNAME_MAXLEN);
++			strncpy(ce->daemon.mcast_ifn, optarg, IP_VS_IFNAME_MAXLEN);
+ 			break;
+ 		case 'I':
+ 			set_option(options, OPT_SYNCID);
+@@ -692,6 +739,137 @@ parse_options(int argc, char **argv, struct ipvs_command_entry *ce,
+ 
+ 			break;
+ 			}
++	        case 'F':
++	                {
++	                struct ipvs_snat_rule_parse rule;
++	                set_option(options, OPT_SNAT_FROM);
++	                parse = parse_address_mask(optarg, &rule);
++	                if (!parse & SNAT_ADDR) {
++	                    fail(2, "illegal from address");
++	                }
++	                ce->snat_dest.saddr = rule.addr;
++	                 if (parse & SNAT_MASK) {
++	                    ce->snat_dest.smask = rule.mask;
++	                }
++	                ce->snat_dest.af = rule.af;
++	                break;
++	                }
++	        case 'T':
++	                {
++	                /* rule from address and mask */
++	                struct ipvs_snat_rule_parse rule;
++	                set_option(options, OPT_SNAT_TO);
++	                parse = parse_address_mask(optarg, &rule);
++	                if (!parse & SNAT_ADDR) {
++	                    fail(2, "illegal dest address");
++	                }
++	                ce->snat_dest.daddr = rule.addr;
++	                 if (ce->snat_dest.af != rule.af) {
++	                    fail(2, "Address family not consistent");
++	                }
++	                if (parse & SNAT_MASK) {
++	                    ce->snat_dest.dmask = rule.mask;
++	                }
++	                break;
++	                }
++	        case 'W':
++	                {
++        	        struct ipvs_snat_rule_parse rule;
++	                set_option(options, OPT_SNAT_GW);
++	                parse = parse_address_mask(optarg, &rule);
++	                 if (!parse & SNAT_ADDR) {
++	                    fail(2, "illegal orign gateway address");
++	                }
++	                ce->snat_dest.gw = rule.addr;
++	                if (ce->snat_dest.af != rule.af) {
++	                    fail(2, "Address family not consistent");
++	                }
++	                break;
++	                }
++	        case 'U':
++	                {
++	                struct ipvs_snat_rule_parse rule;
++	                set_option(options, OPT_SNAT_SOURCE);
++	                if (optarg) {
++	                    char *portp = NULL;
++	                    portp = strchr(optarg, '-');
++                            if (portp == NULL) {
++                                parse = parse_address_mask(optarg, &rule);
++                                if (!parse & SNAT_ADDR) {
++        	                    fail(2, "illegal snatip address");
++        	                }
++        	                if (ce->snat_dest.af != rule.af) {
++            	                    fail(2, "Address family not consistent");
++            	                }
++        	                ce->snat_dest.min_ip = rule.addr;
++        	                ce->snat_dest.max_ip = ce->snat_dest.min_ip;
++                            } else {
++                                *portp = '\0';
++                                portp++;
++                                parse = parse_address_mask(optarg, &rule);
++                                 if (!parse & SNAT_ADDR) {
++        	                    fail(2, "illegal min ip address");
++        	                }
++        	                 if (ce->snat_dest.af != rule.af) {
++            	                    fail(2, "Address family not consistent");
++            	                 }
++        	                ce->snat_dest.min_ip = rule.addr;
++        	                parse = parse_address_mask(portp, &rule);
++                                if (!parse & SNAT_ADDR) {
++        	                    fail(2, "illegal max ip address");
++        	                }
++        	                if (ce->snat_dest.af != rule.af) {
++            	                    fail(2, "Address family not consistent");
++            	                }
++        	                ce->snat_dest.max_ip = rule.addr;
++        	                if (ce->snat_dest.af == AF_INET) {
++            	                    if (ce->snat_dest.max_ip.ip < ce->snat_dest.min_ip.ip) {
++            	                        fail(2, "illegal snat source address:max ip smaller than min ip");
++            	                    }
++        	                }
++                            }
++	                }
++	                break;
++	                }
++	        case 'O':
++	                {
++	                set_option(options, OPT_SNAT_ALGO);
++	                if (!memcmp(optarg , "sh" , strlen("sh"))) {
++	                    ce->snat_dest.algo = IPVS_SNAT_IPS_PERSITENT;
++        	        }  else if(!memcmp(optarg , "sdh" , strlen("sdh"))) {
++        	            ce->snat_dest.algo = IPVS_SNAT_IPS_NORMAL;
++		        } else if (!memcmp(optarg, "random", strlen("random"))) {
++		             ce->snat_dest.algo = IPVS_SNAT_IPS_RANDOM;
++		        } else {
++		            fail(2 , "unkown ip select algo, shoule be one of [sh, sdh, ramdom]\n");
++			}
++			break;
++			}
++	        case 'N':
++	                {
++	                struct ipvs_snat_rule_parse rule;
++	                set_option(options, OPT_SNAT_NEWGW);
++	                parse = parse_address_mask(optarg, &rule);
++	                 if (!parse & SNAT_ADDR) {
++	                    fail(2, "illegal new next gateway address");
++	                }
++	                if (ce->snat_dest.af != rule.af) {
++            	            fail(2, "Address family not consistent");
++            	        }
++	                ce->snat_dest.new_gw = rule.addr;
++	                break;
++	                }
++	        case TAG_OUT_DEV:
++                        {
++                            set_option(options, OPT_SNAT_OUTDEV);
++                             if (optarg) {
++                                 if (strlen(optarg) >= IP_VS_IFNAME_MAXLEN) {
++                                    fail(2, "snat out device name too long");
++                                }
++                                strncpy(ce->snat_dest.out_dev, optarg, IP_VS_IFNAME_MAXLEN);
++                            }
++                        }
++                        break;
+ 		default:
+ 			fail(2, "invalid option `%s'",
+ 			     poptBadOption(context, POPT_BADOPTION_NOALIAS));
+@@ -732,7 +910,6 @@ parse_options(int argc, char **argv, struct ipvs_command_entry *ce,
+ }
+ 
+ 
+-
+ static int restore_table(int argc, char **argv, int reading_stdin)
+ {
+ 	int result = 0;
+@@ -756,7 +933,7 @@ static int restore_table(int argc, char **argv, int reading_stdin)
+ static int process_options(int argc, char **argv, int reading_stdin)
+ {
+ 	struct ipvs_command_entry ce;
+-	unsigned int options = OPT_NONE;
++	unsigned long options = OPT_NONE;
+ 	unsigned int format = FMT_NONE;
+ 	int result = 0;
+ 
+@@ -769,8 +946,13 @@ static int process_options(int argc, char **argv, int reading_stdin)
+ 	/* Set the default persistent granularity to /32 mask */
+ 	ce.svc.netmask = ((u_int32_t) 0xffffffff);
+ 
+-	if (parse_options(argc, argv, &ce, &options, &format))
++	/* lvs snat default value */
++	ce.snat_dest.algo = IPVS_SNAT_IPS_NORMAL;
++	ce.snat_dest.conn_flags = IP_VS_CONN_F_FULLNAT;
++
++	if (parse_options(argc, argv, &ce, &options, &format)) {
+ 		return -1;
++        }
+ 
+ 	generic_opt_check(ce.cmd, options);
+ 
+@@ -778,8 +960,7 @@ static int process_options(int argc, char **argv, int reading_stdin)
+ 		/* Make sure that port zero service is persistent */
+ 		if (!ce.svc.fwmark && !ce.svc.port &&
+ 		    !(ce.svc.flags & IP_VS_SVC_F_PERSISTENT))
+-			fail(2, "Zero port specified "
+-			     "for non-persistent service");
++			fail(2, "Zero port specified for non-persistent service");
+ 
+ 		if (ce.svc.flags & IP_VS_SVC_F_ONEPACKET &&
+ 		    !ce.svc.fwmark && ce.svc.protocol != IPPROTO_UDP)
+@@ -866,6 +1047,16 @@ static int process_options(int argc, char **argv, int reading_stdin)
+ 		result = ipvs_del_dest(&ce.svc, &ce.dest);
+ 		break;
+ 
++    case CMD_ADDSNAT:
++        result = ipvs_add_snat_dest(&ce.svc, &ce.snat_dest);
++        break;
++    case CMD_EDITSNAT:
++        result = ipvs_update_snat_dest(&ce.svc, &ce.snat_dest);
++        break;
++    case CMD_DELSNAT:
++        result = ipvs_del_snat_dest(&ce.svc, &ce.snat_dest);
++        break;
++                
+ 	case CMD_TIMEOUT:
+ 		result = ipvs_set_timeout(&ce.timeout);
+ 		break;
+@@ -975,6 +1166,67 @@ static int parse_netmask(char *buf, u_int32_t *addr)
+ 	return 1;
+ }
+ 
++/* 
++ * Get source ip and mask from the argument
++ */
++static int parse_address_mask(char* buf,  struct ipvs_snat_rule_parse *rule)
++{
++    char *portp = NULL;
++    long portn;
++    int result=SNAT_NONE;
++    struct in_addr inaddr;
++    struct in6_addr inaddr6;
++
++    if (buf == NULL || str_is_digit(buf))
++        return SNAT_NONE;
++    	
++    if (buf[0] == '[') {
++        buf++;
++        portp = strchr(buf, ']');
++        if (portp == NULL) {
++            return SNAT_NONE;
++        }
++        *portp = '\0';
++        portp++;
++        if (*portp == '/') {
++            *portp = '\0';
++        }  else {
++    	    return SNAT_NONE;
++        }
++    }
++
++    if (inet_pton(AF_INET6, buf, &inaddr6) > 0) {
++        rule->addr.in6 = inaddr6;
++        rule->mask = 128;
++        rule->af = AF_INET6;
++        fail(2, "Not support IPv6");
++    } else {
++        portp = strrchr(buf, '/');
++        if (portp != NULL) {
++            *portp = '\0';
++        }
++        rule->af = AF_INET;
++        if (inet_aton(buf, &inaddr) != 0) {
++            rule->addr.ip = inaddr.s_addr;
++        } else if (host_to_addr(buf, &inaddr) != -1) {
++            rule->addr.ip = inaddr.s_addr;
++        } else {
++    	    return SNAT_NONE;
++        }
++    }
++
++    result |= SNAT_ADDR;
++    if (portp != NULL) {
++        result |= SNAT_MASK;
++        if ((portn = string_to_number(portp+1, 0, 32)) != -1) {
++            rule->mask= portn;
++        } else {
++            return SNAT_NONE;
++        }
++    }
++
++    return result;
++}
+ 
+ /*
+  * Get IP address and port from the argument.
+@@ -1043,33 +1295,30 @@ parse_service(char *buf, ipvs_service_t *svc)
+ 
+ 
+ static void
+-generic_opt_check(int command, int options)
++generic_opt_check(int command, unsigned long options)
+ {
+ 	int i, j;
+ 	int last = 0, count = 0;
+ 
+ 	/* Check that commands are valid with options. */
+ 	i = command - CMD_NONE -1;
+-
+ 	for (j = 0; j < NUMBER_OF_OPT; j++) {
+ 		if (!(options & (1<<j))) {
+-			if (commands_v_options[i][j] == '+')
+-				fail(2, "You need to supply the '%s' "
+-				     "option for the '%s' command",
+-				     optnames[j], cmdnames[i]);
++                    if (commands_v_options[i][j] == '+') {
++                        fail(2, "You need to supply the '%s' option for the '%s' command",  optnames[j], cmdnames[i]);
++                    }
+ 		} else {
+-			if (commands_v_options[i][j] == 'x')
+-				fail(2, "Illegal '%s' option with "
+-				     "the '%s' command",
+-				     optnames[j], cmdnames[i]);
++        		if (commands_v_options[i][j] == 'x') {
++        		    fail(2, "Illegal '%s' option with the '%s' command", optnames[j], cmdnames[i]);
++        	        }
+ 			if (commands_v_options[i][j] == '1') {
+ 				count++;
+ 				if (count == 1) {
+ 					last = j;
+ 					continue;
+ 				}
+-				fail(2, "The option '%s' conflicts with the "
+-				     "'%s' option in the '%s' command",
++        	
++        		    fail(2, "The option '%s' conflicts with '%s' option in the '%s' command",  
+ 				     optnames[j], optnames[last], cmdnames[i]);
+ 			}
+ 		}
+@@ -1077,7 +1326,7 @@ generic_opt_check(int command, int options)
+ }
+ 
+ static inline const char *
+-opt2name(int option)
++opt2name(unsigned long option)
+ {
+ 	const char **ptr;
+ 	for (ptr = optnames; option > 1; option >>= 1, ptr++);
+@@ -1094,7 +1343,7 @@ set_command(int *cmd, const int newcmd)
+ }
+ 
+ static void
+-set_option(unsigned int *options, unsigned int option)
++set_option(unsigned long *options, unsigned long option)
+ {
+ 	if (*options & option)
+ 		fail(2, "multiple '%s' options specified", opt2name(option));
+@@ -1136,11 +1385,13 @@ static void usage_exit(const char *program, const int exit_status)
+ 		"  %s --set tcp tcpfin udp\n"
+ 		"  %s --start-daemon state [--mcast-interface interface] [--syncid sid]\n"
+ 		"  %s --stop-daemon state\n"
++		"  %s -K|k -f service-address -F src-addrress/mask [-T dest-address/mask] [-W gw] -U minip-maxip [-O algo] [--oif dev] [-N new-gw] [-b]\n"
++		"  %s -H -f service-address -F src-address/mask [-T dest-address/mask] [-W gw] [-U minip-maxip] [-O algo] [--oif dev] [-N new-gw] [-b]\n"
+ 		"  %s -h\n\n",
+ 		program, program, program,
+ 		program, program, 
+ 		program, program, program, program, program,
+-		program, program, program, program, program);
++		program, program, program, program, program, program, program);
+ 
+ 	fprintf(stream,
+ 		"Commands:\n"
+@@ -1162,6 +1413,9 @@ static void usage_exit(const char *program, const int exit_status)
+ 		"  --set tcp tcpfin udp        set connection timeout values\n"
+ 		"  --start-daemon              start connection sync daemon\n"
+ 		"  --stop-daemon               stop connection sync daemon\n"
++		"  --add-snat        -K        add lvs snat rule\n"
++		"  --edit-snat       -k        edit lvs snat rule\n"
++		"  --delete-snat     -H        delete lvs snat rule\n"
+ 		"  --help            -h        display this help message\n\n"
+ 		);
+ 
+@@ -1198,7 +1452,14 @@ static void usage_exit(const char *program, const int exit_status)
+ 		"  --nosort                            disable sorting output of service/server entries\n"
+ 		"  --sort                              does nothing, for backwards compatibility\n"
+ 		"  --ops          -o                   one-packet scheduling\n"
+-		"  --numeric      -n                   numeric output of addresses and ports\n",
++		"  --numeric      -n                   numeric output of addresses and ports\n"
++		"  --from         -F                   lvs snat rule source address/mask\n"
++		"  --to           -T                   lvs snat rule dest address/mask\n"
++		"  --gw           -W                   lvs snat rule orign gateway\n"
++		"  --snat-ip      -U                   lvs snat rule snat ip pool\n"
++		"  --algo         -O                   lvs snat rule source ip choice algo, must be one of (sh, sdh, random), default sdh\n"
++		"  --new-gw       -N                   lvs snat rule new next gateway\n"
++		"  --oif                               lvs snat output dev\n",
+ 		DEF_SCHED);
+ 
+ 	exit(exit_status);
+@@ -1481,6 +1742,11 @@ static void print_title(unsigned int format)
+ 		       "  -> RemoteAddress:Port\n",
+ 		       "Prot LocalAddress:Port",
+ 		       "Weight", "PersistConn", "ActiveConn", "InActConn");
++        else if (format & FMT_SNAT_RULE) {
++                printf("Prot LocalAddress:Port Scheduler Flags\n"
++		       "  -> %-20s%-20s%-17s%-16s%-32s%-8s%-17s%-10s%-10s\n",  
++		       "SourceAddr", "DestAddr", "GW", "Oif", "SnatIp", "Algo", "NewGW", "ActConn", "InActConn");
++        }
+ 	else if (!(format & FMT_RULE))
+ 		printf("Prot LocalAddress:Port Scheduler Flags\n"
+ 		       "  -> RemoteAddress:Port           Forward Weight ActiveConn InActConn\n");
+@@ -1594,7 +1860,6 @@ print_service_entry(ipvs_service_entry_t *se, unsigned int format)
+ 	for (i = 0; i < d->num_dests; i++) {
+ 		char *dname;
+ 		ipvs_dest_entry_t *e = &d->entrytable[i];
+-
+ 		if (!(dname = addrport_to_anyname(se->af, &(e->addr), ntohs(e->port),
+ 						  se->protocol, format))) {
+ 			fprintf(stderr, "addrport_to_anyname fails\n");
+@@ -1604,8 +1869,29 @@ print_service_entry(ipvs_service_entry_t *se, unsigned int format)
+ 			dname[28] = '\0';
+ 
+ 		if (format & FMT_RULE) {
+-			printf("-a %s -r %s %s -w %d\n", svc_name, dname,
+-			       fwd_switch(e->conn_flags), e->weight);
++		        if (se->fwmark == 1) {
++		            char tmp_rule[512] = {0};
++		            char src_net[128] = {0};
++        		    char dst_net[128] = {0};
++        		    char gw[128] = {0};
++        		    char ip_pool[256] = {0};
++        		    char new_gw[128] = {0};
++        		    addrmask_to_str(se->af, &e->snat_rule.saddr, e->snat_rule.smask, src_net);
++           		    addrmask_to_str(se->af, &e->snat_rule.daddr, e->snat_rule.dmask, dst_net);
++           		    addr_to_str(se->af, &e->snat_rule.gw, gw);
++           		    addrpool_to_str(se->af, &e->snat_rule.min_ip, &e->snat_rule.max_ip, ip_pool);
++           		    addr_to_str(se->af, &e->snat_rule.new_gw, new_gw);
++           		    
++		            sprintf(tmp_rule, "-K %s -F %s -T %s -W %s -U %s -O %s -N %s", svc_name, src_net, dst_net, gw, ip_pool, 
++		                    ip_select_algo_name(e->snat_rule.algo), new_gw);
++		            if (strlen(e->snat_rule.out_dev)) {
++		                printf("%s --oif %s\n",tmp_rule,  e->snat_rule.out_dev);
++		            } else {
++		                printf("%s\n", tmp_rule);
++		            }
++		        } else {
++		            printf("-a %s -r %s %s -w %d\n", svc_name, dname, fwd_switch(e->conn_flags), e->weight);
++		        }
+ 		} else if (format & FMT_STATS) {
+ 			printf("  -> %-28s", dname);
+ 			print_largenum(e->stats.conns, format);
+@@ -1630,10 +1916,32 @@ print_service_entry(ipvs_service_entry_t *se, unsigned int format)
+ 			printf("  -> %-28s %-9u %-11u %-10u %-10u\n", dname,
+ 			       e->weight, e->persistconns,
+ 			       e->activeconns, e->inactconns);
+-		} else
++		} else if (format & FMT_SNAT_RULE) {
++		    char src_net[128] = {0};
++		    char dst_net[128] = {0};
++		    char gw[128] = {0};
++		    char ip_pool[256] = {0};
++		    char new_gw[128] = {0};
++		    addrmask_to_str(se->af, &e->snat_rule.saddr, e->snat_rule.smask, src_net);
++   		    addrmask_to_str(se->af, &e->snat_rule.daddr, e->snat_rule.dmask, dst_net);
++   		    addr_to_str(se->af, &e->snat_rule.gw, gw);
++   		    addrpool_to_str(se->af, &e->snat_rule.min_ip, &e->snat_rule.max_ip, ip_pool);
++   		    addr_to_str(se->af, &e->snat_rule.new_gw, new_gw);
++		    printf("  -> %-20s%-20s%-17s%-16s%-32s%-8s%-17s%-10u%-10u\n", 
++		                    src_net,  
++		                    dst_net, 
++		                    gw, 
++    	                            e->snat_rule.out_dev,
++		                    ip_pool, 
++		                    ip_select_algo_name(e->snat_rule.algo), 
++		                    new_gw, 
++		                    e->activeconns, 
++		                    e->inactconns);
++		} else {
+ 			printf("  -> %-28s %-7s %-6d %-10u %-10u\n",
+ 			       dname, fwd_name(e->conn_flags),
+ 			       e->weight, e->activeconns, e->inactconns);
++                }
+ 		free(dname);
+ 	}
+ 	free(d);
+@@ -1644,7 +1952,7 @@ static void list_laddrs_print_title(void)
+ 	printf("%-20s %-8s %-20s %-10s %-10s\n" , 
+ 		"VIP:VPORT" ,
+ 		"TOTAL" ,
+-		"SNAT_IP",
++		"LADDR",
+ 		"CONFLICTS",
+ 		"CONNS" );
+ }
+@@ -1775,6 +2083,8 @@ static void list_service(ipvs_service_t *svc, unsigned int format)
+ static void list_all(unsigned int format)
+ {
+ 	struct ip_vs_get_services *get;
++	struct ip_vs_service_entry *snat_service = NULL;
++	int print_able = 0;
+ 	int i;
+ 
+ 	if (!(format & FMT_RULE))
+@@ -1789,9 +2099,28 @@ static void list_all(unsigned int format)
+ 	if (!(format & FMT_NOSORT))
+ 		ipvs_sort_services(get, ipvs_cmp_services);
+ 
++	for (i = 0; i < get->num_services; i++) {
++	    if (get->entrytable[i].fwmark == 1) {
++                snat_service = &get->entrytable[i];
++                continue;
++	    }
++	    if (print_able == 0) {
++	        print_able = 1;
+ 	print_title(format);
+-	for (i = 0; i < get->num_services; i++)
++	    }
+ 		print_service_entry(&get->entrytable[i], format);
++	}
++	
++	if (snat_service) {
++	    if (!(format & FMT_RULE)) { /* if none ./ipvsadm -S */
++	        int tmp_format = format;
++	        tmp_format |= FMT_SNAT_RULE;
++	        print_title(tmp_format);
++	        print_service_entry(snat_service, tmp_format);
++	    } else {
++	        print_service_entry(snat_service, format);
++	    }
++	}
+ 	free(get);
+ }
+ 
+@@ -1935,6 +2264,65 @@ addrport_to_anyname(int af, const void *addr, unsigned short port,
+ 	return buf;
+ }
+ 
++static inline char *ip_select_algo_name(unsigned algo)
++{
++    char *algo_name = NULL;
++    
++    switch (algo) {
++    case IPVS_SNAT_IPS_NORMAL:
++    	algo_name = "sdh";
++    	break;
++    case IPVS_SNAT_IPS_PERSITENT:
++    	algo_name = "sh";
++    	break;
++    case IPVS_SNAT_IPS_RANDOM:
++    	algo_name = "random";
++    	break;
++    }
++    
++    return algo_name;
++}
++
++static void addrmask_to_str(int af, const union nf_inet_addr *addr, unsigned short mask, char *output)
++{                
++    char pbuf[INET6_ADDRSTRLEN] = {0};
++    if (af == AF_INET) {
++        inet_ntop(af, &addr->in, pbuf, sizeof(pbuf));
++        sprintf(output, "%s/%d", pbuf, mask);  
++    } else {
++        inet_ntop(af, &addr->in6, pbuf, sizeof(pbuf));
++        sprintf(output, "[%s]/%d",  pbuf,  mask);  
++    }
++}
++
++static void addr_to_str(int af, const union nf_inet_addr *addr, char *output)
++{
++    char pbuf[INET6_ADDRSTRLEN]; 
++    if (af == AF_INET) {
++        sprintf(output, "%s", inet_ntop(af, (void *)&(addr->in), pbuf, sizeof(pbuf)));  
++    } else {
++        sprintf(output, "[%s]",  inet_ntop(af, (void *)&(addr->in6), pbuf, sizeof(pbuf)));  
++    }
++}
++
++static void addrpool_to_str(int af, const union nf_inet_addr* minaddr, const union nf_inet_addr* maxaddr, char *output)
++{
++    char min_buf[INET6_ADDRSTRLEN] = {0};
++    char max_buf[INET6_ADDRSTRLEN] = {0};
++    if (af == AF_INET) {
++        inet_ntop(af, (void *)&(minaddr->in), min_buf, sizeof(min_buf));
++        inet_ntop(af, (void *)&(maxaddr->in), max_buf, sizeof(max_buf));
++    } else {
++        inet_ntop(af, (void *)&(minaddr->in6), min_buf, sizeof(min_buf));
++        inet_ntop(af, (void *)&(maxaddr->in6), max_buf, sizeof(max_buf));  
++    }
++    
++     if (!strcmp(min_buf, max_buf)) {
++        sprintf(output, "%s", min_buf); 
++     } else {
++        sprintf(output, "%s-%s", min_buf, max_buf); 
++     }
++}
+ 
+ static int str_is_digit(const char *str)
+ {
+diff --git a/tools/keepalived/keepalived/check/check_api.c b/tools/keepalived/keepalived/check/check_api.c
+index a208690..d2ee17a 100644
+--- a/tools/keepalived/keepalived/check/check_api.c
++++ b/tools/keepalived/keepalived/check/check_api.c
+@@ -217,3 +217,105 @@ install_checkers_keyword(void)
+ 	install_http_check_keyword();
+ 	install_ssl_check_keyword();
+ }
++
++static char *
++ip_select_algo_name(unsigned algo)
++{
++    char *algo_name = NULL;
++    
++    switch (algo) {
++    case IPVS_SNAT_IPS_NORMAL:
++    	algo_name = "sdh";
++    	break;
++    case IPVS_SNAT_IPS_PERSITENT:
++    	algo_name = "sh";
++    	break;
++    case IPVS_SNAT_IPS_RANDOM:
++    	algo_name = "random";
++    	break;
++    }
++    
++    return algo_name;
++}
++
++static void 
++addrmask_to_str(int af, const union nf_inet_addr *addr,
++                                unsigned short mask, char *output)
++{                
++    char pbuf[INET6_ADDRSTRLEN] = {0};
++    if (af == AF_INET) {
++        inet_ntop(af, &addr->in, pbuf, sizeof(pbuf));
++        sprintf(output, "%s/%d", pbuf, mask);  
++    } else {
++        inet_ntop(af, &addr->in6, pbuf, sizeof(pbuf));
++        sprintf(output, "[%s]/%d",  pbuf,  mask);  
++    }
++}
++
++static void
++addr_to_str(int af, const union nf_inet_addr *addr, char *output)
++{
++    char pbuf[INET6_ADDRSTRLEN]; 
++    if (af == AF_INET) {
++        sprintf(output, "%s", inet_ntop(af, (void *)&(addr->in), pbuf, sizeof(pbuf)));  
++    } else {
++        sprintf(output, "[%s]",  inet_ntop(af, (void *)&(addr->in6), pbuf, sizeof(pbuf)));  
++    }
++}
++
++static void
++addrpool_to_str(int af, const union nf_inet_addr* minaddr, 
++                                    const union nf_inet_addr* maxaddr, char *output)
++{
++    char min_buf[INET6_ADDRSTRLEN] = {0};
++    char max_buf[INET6_ADDRSTRLEN] = {0};
++    if (af == AF_INET) {
++        inet_ntop(af, (void *)&(minaddr->in), min_buf, sizeof(min_buf));
++        inet_ntop(af, (void *)&(maxaddr->in), max_buf, sizeof(max_buf));
++    } else {
++        inet_ntop(af, (void *)&(minaddr->in6), min_buf, sizeof(min_buf));
++        inet_ntop(af, (void *)&(maxaddr->in6), max_buf, sizeof(max_buf));  
++    }
++    
++     if (!strcmp(min_buf, max_buf)) {
++        sprintf(output, "%s", min_buf); 
++     } else {
++        sprintf(output, "%s-%s", min_buf, max_buf); 
++     }
++}
++
++void 
++print_snat_rule(int cmd, snat_rule *rs)
++{
++    char output[512] = {0};
++    
++    char src_mask[128] = {0};
++    char dst_mask[128] = {0};
++    char gw[128] = {0};
++    char new_gw[128] = {0};
++    char snatip[256] = {0};
++
++    addrmask_to_str(rs->af, &rs->saddr, rs->smask, src_mask);
++    addrmask_to_str(rs->af, &rs->daddr, rs->dmask, dst_mask);
++    addr_to_str(rs->af, &rs->gw, gw);
++    addrpool_to_str(rs->af, &rs->minip, &rs->maxip, snatip);
++    addr_to_str(rs->af, &rs->new_gw, new_gw);
++    sprintf(output,
++        "snat rule[-F %s -T %s -W %s --oif %s -U %s -O %s -N %s]",
++        src_mask,
++        dst_mask,
++        gw,
++        rs->out_dev,
++        snatip,
++        ip_select_algo_name(rs->algo),
++        new_gw);
++
++    if (cmd == LVS_CMD_DEL_SNATDEST) {
++        log_message(LOG_INFO, "Removing %s", output);
++    } else if (cmd == LVS_CMD_ADD_SNATDEST) {
++        log_message(LOG_INFO, "Adding %s", output);
++    } else {
++        log_message(LOG_INFO, "%s", output);
++    }
++}
++
+diff --git a/tools/keepalived/keepalived/check/check_daemon.c b/tools/keepalived/keepalived/check/check_daemon.c
+index 7587a7d..88dbb81 100644
+--- a/tools/keepalived/keepalived/check/check_daemon.c
++++ b/tools/keepalived/keepalived/check/check_daemon.c
+@@ -107,10 +107,10 @@ start_check(void)
+ 		stop_check();
+ 		return;
+ 	}
+-
+ 	/* Processing differential configuration parsing */
+-	if (reload)
++    if (reload) {
+ 		clear_diff_services();
++    }
+ 
+ 	/* Initialize IPVS topology */
+ 	if (!init_services()) {
+@@ -169,7 +169,6 @@ reload_check_thread(thread_t * thread)
+ {
+ 	/* set the reloading flag */
+ 	SET_RELOAD;
+-
+ 	/* Signals handling */
+ 	signal_reset();
+ 	signal_handler_destroy();
+diff --git a/tools/keepalived/keepalived/check/check_data.c b/tools/keepalived/keepalived/check/check_data.c
+index 80c1828..8fe0b30 100644
+--- a/tools/keepalived/keepalived/check/check_data.c
++++ b/tools/keepalived/keepalived/check/check_data.c
+@@ -332,10 +332,23 @@ alloc_vs(char *ip, char *port)
+ 	new->quorum_down = NULL;
+ 	new->quorum = 1;
+ 	new->hysteresis = 0;
++	new->abs_priority = 0;
++	new->cur_max_weight = -1;
+ 	new->quorum_state = UP;
+ 	new->local_addr_gname = NULL;
+ 	new->vip_bind_dev = NULL;
+ 
++    /* snat vs init special info */
++	if (IS_SNAT_SVC(new)) {
++	    new->loadbalancing_kind = IP_VS_CONN_F_FULLNAT;
++	    int tmp_size = sizeof (new->sched);
++	    int str_len = strlen(DEFAULT_SNAT_SCHED);
++	    if (tmp_size > str_len) {
++	        tmp_size = str_len;
++	    }
++	    strncpy(new->sched, DEFAULT_SNAT_SCHED, tmp_size);
++	}
++
+ 	list_add(check_data->vs, new);
+ }
+ 
+@@ -344,13 +357,26 @@ void
+ alloc_ssvr(char *ip, char *port)
+ {
+ 	virtual_server *vs = LIST_TAIL_DATA(check_data->vs);
+-
+ 	vs->s_svr = (real_server *) MALLOC(sizeof (real_server));
+ 	vs->s_svr->weight = 1;
+ 	vs->s_svr->iweight = 1;
+ 	inet_stosockaddr(ip, port, &vs->s_svr->addr);
+ }
+ 
++static void
++free_snat_rule(void *data)
++{
++    snat_rule *rule = data;
++    FREE(rule);
++}
++
++static void
++dump_snat_rule(void *data)
++{
++    snat_rule *rs = (snat_rule *)data;
++    print_snat_rule(999, rs);
++}
++
+ /* Real server facility functions */
+ static void
+ free_rs(void *data)
+@@ -392,6 +418,10 @@ alloc_rs(char *ip, char *port)
+ 	virtual_server *vs = LIST_TAIL_DATA(check_data->vs);
+ 	real_server *new;
+ 
++    if (IS_SNAT_SVC(vs)) {
++        return;
++    }
++    
+ 	new = (real_server *) MALLOC(sizeof (real_server));
+ 	inet_stosockaddr(ip, port, &new->addr);
+ 
+@@ -404,6 +434,23 @@ alloc_rs(char *ip, char *port)
+ 	list_add(vs->rs, new);
+ }
+ 
++void 
++alloc_snat_rule(void)
++{
++    virtual_server *vs = LIST_TAIL_DATA(check_data->vs);
++    if (NOT_SNAT_SVC(vs)) {
++        return;
++    }
++    snat_rule *new = (snat_rule *)MALLOC(sizeof(snat_rule));
++    new->algo = IPVS_SNAT_IPS_NORMAL;
++    new->conn_flags = IP_VS_CONN_F_FULLNAT;
++    
++    if (LIST_ISEMPTY(vs->rs)) {
++        vs->rs = alloc_list(free_snat_rule, dump_snat_rule);
++    }
++    list_add(vs->rs, new);
++}
++
+ /* data facility functions */
+ check_conf_data *
+ alloc_check_data(void)
+diff --git a/tools/keepalived/keepalived/check/check_parser.c b/tools/keepalived/keepalived/check/check_parser.c
+index e491cc0..7afe35a 100644
+--- a/tools/keepalived/keepalived/check/check_parser.c
++++ b/tools/keepalived/keepalived/check/check_parser.c
+@@ -33,6 +33,106 @@
+ #include "utils.h"
+ #include "ipwrapper.h"
+ 
++static int
++str2number(const char *s, int min, int max)
++{
++    int number;
++    char *end;
++
++    number = (int) strtol(s, &end, 10);
++    if (*end == '\0' && end != s) {
++    	/*
++    	 * We parsed a number, let's see if we want this.
++    	 * If max <= min then ignore ranges
++    	 */
++    	if (max <= min || (min <= number && number <= max)) {
++            return number;
++    	} else {
++    	    return -1;
++    	}
++    } else {
++        return -1;
++    }
++}
++
++static int str_is_digit(const char *str)
++{
++    size_t offset;
++    size_t top;
++
++    top = strlen(str);
++    for (offset=0; offset<top; offset++) {
++        if (!isdigit((int)*(str+offset))) {
++            break;
++        }
++    }
++
++    return (offset<top)?0:1;
++}
++
++/* 
++ * Get source ip and mask from the argument
++ */
++static int parse_address_mask(char* buf, snat_rule_addr_mask *addrmask)
++{
++    char *portp = NULL;
++    int portn;
++    int result = SNAT_NONE;
++    struct in_addr inaddr;
++    struct in6_addr inaddr6;
++
++    if (buf == NULL || str_is_digit(buf)) {
++        return SNAT_NONE;
++    }
++    
++    if (buf[0] == '[') {
++        buf++;
++        portp = strchr(buf, ']');
++        if (portp == NULL) {
++            return SNAT_NONE;
++        }
++        *portp = '\0';
++        portp++;
++        if (*portp == '/') {
++            *portp = '\0';
++        }  else {
++            return SNAT_NONE;
++        }
++    }
++
++    if (inet_pton(AF_INET6, buf, &inaddr6) > 0) {
++        //addrmask->addr.in6 = inaddr6;
++        //addrmask->mask = 128;
++        //addrmask->af = AF_INET6;
++        log_message(LOG_ERR, "Not support IPv6");
++        return SNAT_NONE;
++    } else {
++        portp = strrchr(buf, '/');
++        if (portp != NULL) {
++            *portp = '\0';
++        }
++        addrmask->af = AF_INET;
++        if (inet_aton(buf, &inaddr) != 0) {
++            addrmask->addr.ip = inaddr.s_addr;
++        } else {
++    	    return SNAT_NONE;
++        }
++    }
++
++    result |= SNAT_ADDR;
++    if (portp != NULL) { 
++        if ((portn = str2number(portp+1, 0, 32)) != -1) {
++            addrmask->mask= portn;
++            result |= SNAT_MASK;
++        } else {
++            return SNAT_NONE;
++        }
++    }
++
++    return result;
++}
++
++
+ /* SSL handlers */
+ static void
+ ssl_handler(vector strvec)
+@@ -82,9 +182,19 @@ vs_handler(vector strvec)
+ static void
+ delay_handler(vector strvec)
+ {
++    virtual_server *vs = LIST_TAIL_DATA(check_data->vs);
++    vs->delay_loop = atoi(VECTOR_SLOT(strvec, 1)) * TIMER_HZ;;
++}
++
++/* new add 20140319 : for keyword abs_priority  */
++static void
++abspriority_handler(vector strvec)
++{
+ 	virtual_server *vs = LIST_TAIL_DATA(check_data->vs);
+-	vs->delay_loop = atoi(VECTOR_SLOT(strvec, 1)) * TIMER_HZ;
++    log_message(LOG_INFO, "abs_priority mode open");
++    vs->abs_priority = 1;
+ }
++
+ static void
+ lbalgo_handler(vector strvec)
+ {
+@@ -147,6 +257,7 @@ static void
+ proto_handler(vector strvec)
+ {
+ 	virtual_server *vs = LIST_TAIL_DATA(check_data->vs);
++
+ 	char *str = VECTOR_SLOT(strvec, 1);
+ 	vs->service_type = (!strcmp(str, "TCP")) ? IPPROTO_TCP : IPPROTO_UDP;
+ }
+@@ -170,6 +281,173 @@ ssvr_handler(vector strvec)
+ 	alloc_ssvr(VECTOR_SLOT(strvec, 1), VECTOR_SLOT(strvec, 2));
+ }
+ 
++static void
++snat_rule_handler(vector strvec)
++{
++    alloc_snat_rule();
++}
++
++static void
++snat_from_handler(vector strvec)
++{
++    snat_rule *rule = NULL;
++    snat_rule_addr_mask addrmask;
++    
++    char *str = VECTOR_SLOT(strvec, 1);
++    virtual_server *vs = LIST_TAIL_DATA(check_data->vs);
++    if (IS_SNAT_SVC(vs)) {
++        rule = LIST_TAIL_DATA(vs->rs);
++        int result = parse_address_mask(str, &addrmask);
++        if (result & SNAT_ADDR) {
++            rule->saddr = addrmask.addr;
++        }
++        if (result & SNAT_MASK) {
++            rule->smask = addrmask.mask;
++        }
++        rule->af = addrmask.af;
++    }
++}
++
++static void
++snat_to_handler(vector strvec)
++{
++    snat_rule *rule = NULL;
++    snat_rule_addr_mask addrmask;
++    
++    char *str = VECTOR_SLOT(strvec, 1);
++    virtual_server *vs = LIST_TAIL_DATA(check_data->vs);
++    if (IS_SNAT_SVC(vs)) {
++        rule = LIST_TAIL_DATA(vs->rs);
++        int result = parse_address_mask(str, &addrmask);
++        if (result & SNAT_ADDR) {
++            rule->daddr = addrmask.addr;
++        }
++        if (result & SNAT_MASK) {
++            rule->dmask = addrmask.mask;
++        }
++    }
++}
++
++static void
++snat_gw_handler(vector strvec)
++{
++    snat_rule *rule = NULL;
++    snat_rule_addr_mask addrmask;
++    
++    char *str = VECTOR_SLOT(strvec, 1);
++    virtual_server *vs = LIST_TAIL_DATA(check_data->vs);
++    if (IS_SNAT_SVC(vs)) {
++        rule = LIST_TAIL_DATA(vs->rs);
++        int result = parse_address_mask(str, &addrmask);
++        if (result & SNAT_ADDR) {
++            rule->gw = addrmask.addr;
++        }
++    }
++}
++
++static void
++snat_oif_handler(vector strvec)
++{
++    snat_rule *rule = NULL;
++    char *str = VECTOR_SLOT(strvec, 1);
++    virtual_server *vs = LIST_TAIL_DATA(check_data->vs);
++    if (IS_SNAT_SVC(vs)) {
++        rule = LIST_TAIL_DATA(vs->rs);
++        if (strlen(str) < IP_VS_IFNAME_MAXLEN) {
++            strcpy(rule->out_dev, str);
++        } else {
++            log_message(LOG_ERR, "out dev name too long\n");
++        }
++    }
++}
++
++static void
++snat_algo_handler(vector strvec)
++{
++    snat_rule *rule = NULL;
++    char *str = VECTOR_SLOT(strvec, 1);
++    virtual_server *vs = LIST_TAIL_DATA(check_data->vs);
++    if (IS_SNAT_SVC(vs)) {
++        rule = LIST_TAIL_DATA(vs->rs);
++        if (!memcmp(str , "sh" , strlen("sh"))) {
++            rule->algo = IPVS_SNAT_IPS_PERSITENT;
++        }  else if(!memcmp(str , "sdh" , strlen("sdh"))) {
++            rule->algo = IPVS_SNAT_IPS_NORMAL;
++        } else if (!memcmp(str, "random", strlen("random"))) {
++            rule->algo = IPVS_SNAT_IPS_RANDOM;
++        } else {
++            log_message(LOG_ERR, "unkown algo,shoule be one of [sh, sdh, ramdom]\n");
++        }
++    }
++}
++
++static void
++snat_newgw_handler(vector strvec)
++{
++    snat_rule *rule = NULL;
++    snat_rule_addr_mask addrmask;
++    
++    char *str = VECTOR_SLOT(strvec, 1);
++    virtual_server *vs = LIST_TAIL_DATA(check_data->vs);
++    if (IS_SNAT_SVC(vs)) {
++        rule = LIST_TAIL_DATA(vs->rs);
++        int result = parse_address_mask(str, &addrmask);
++        if (result & SNAT_ADDR) {
++            rule->new_gw= addrmask.addr;
++        }
++    }
++}
++
++static void
++snat_snatip_handler(vector strvec)
++{
++    char *portp = NULL;
++    snat_rule *rule = NULL;
++    snat_rule_addr_mask addrmask;
++    int result;
++    
++    char *str = VECTOR_SLOT(strvec, 1);
++    virtual_server *vs = LIST_TAIL_DATA(check_data->vs);
++    if (IS_SNAT_SVC(vs)) {
++        rule = LIST_TAIL_DATA(vs->rs);
++        portp = strchr(str, '-');
++        if (portp == NULL) {
++            result = parse_address_mask(str, &addrmask);
++            if (result & SNAT_ADDR) {
++                rule->minip = addrmask.addr;
++                rule->maxip = rule->minip;
++            } else {
++                log_message(LOG_ERR, "snatip illegal\n");
++                return;
++            }
++        } else {
++            *portp = '\0';
++            portp++;
++            result = parse_address_mask(str, &addrmask);
++            if (result & SNAT_ADDR) {
++                rule->minip = addrmask.addr;
++            } else {
++                log_message(LOG_ERR, "snatip minip illegal\n");
++                return;
++            }
++
++            result = parse_address_mask(portp, &addrmask);
++            if (result & SNAT_ADDR) {
++                rule->maxip = addrmask.addr;
++            } else {
++                log_message(LOG_ERR, "snatip maxip illegal\n");
++                return;
++            }
++
++            if (rule->af == AF_INET) {
++                if (rule->maxip.ip < rule->minip.ip) {
++                    log_message(LOG_ERR, "maxip smaller than minip\n");
++                }
++            }
++        }
++    }
++}
++
+ /* Real Servers handlers */
+ static void
+ rs_handler(vector strvec)
+@@ -277,7 +555,6 @@ static void
+ laddr_gname_handler(vector strvec)
+ {
+ 	virtual_server *vs = LIST_TAIL_DATA(check_data->vs);
+-	
+ 	vs->local_addr_gname = set_value(strvec);
+ }
+ static void 
+@@ -312,6 +589,7 @@ check_init_keywords(void)
+ 	/* Virtual server mapping */
+ 	install_keyword_root("virtual_server_group", &vsg_handler);
+ 	install_keyword_root("virtual_server", &vs_handler);
++    install_keyword("abs_priority", &abspriority_handler); /* new add 20140319 */
+ 	install_keyword("delay_loop", &delay_handler);
+ 	install_keyword("lb_algo", &lbalgo_handler);
+ 	install_keyword("lvs_sched", &lbalgo_handler);
+@@ -332,6 +610,18 @@ check_init_keywords(void)
+ 	install_keyword("quorum", &quorum_handler);
+ 	install_keyword("hysteresis", &hysteresis_handler);
+ 
++    /* snat rule mapping */
++    install_keyword("snat_rule", &snat_rule_handler);
++    install_sublevel();
++    install_keyword("from", &snat_from_handler);
++    install_keyword("to", &snat_to_handler);
++    install_keyword("gw", &snat_gw_handler);
++    install_keyword("oif", &snat_oif_handler);
++    install_keyword("snat_ip", &snat_snatip_handler);
++    install_keyword("algo", &snat_algo_handler);
++    install_keyword("new_gw", &snat_newgw_handler);
++    install_sublevel_end();
++
+ 	/* Real server mapping */
+ 	install_keyword("sorry_server", &ssvr_handler);
+ 	install_keyword("real_server", &rs_handler);
+diff --git a/tools/keepalived/keepalived/check/ipvswrapper.c b/tools/keepalived/keepalived/check/ipvswrapper.c
+index f9e4154..5ad81df 100644
+--- a/tools/keepalived/keepalived/check/ipvswrapper.c
++++ b/tools/keepalived/keepalived/check/ipvswrapper.c
+@@ -344,6 +344,7 @@ static ipvs_service_t *srule;
+ static ipvs_dest_t *drule;
+ static ipvs_daemon_t *daemonrule;
+ static ipvs_laddr_t *laddr_rule;
++static ipvs_snat_dest_t *sdrule;
+ 
+ /* Initialization helpers */
+ int
+@@ -364,6 +365,7 @@ ipvs_start(void)
+ 	drule = (ipvs_dest_t *) MALLOC(sizeof(ipvs_dest_t));
+ 	daemonrule = (ipvs_daemon_t *) MALLOC(sizeof(ipvs_daemon_t));
+ 	laddr_rule = (ipvs_laddr_t *) MALLOC(sizeof(ipvs_laddr_t));
++	sdrule = (ipvs_snat_dest_t *)MALLOC(sizeof(ipvs_snat_dest_t));
+ 	return IPVS_SUCCESS;
+ }
+ 
+@@ -375,6 +377,7 @@ ipvs_stop(void)
+ 	FREE(drule);
+ 	FREE(daemonrule);
+ 	FREE(laddr_rule);
++	FREE(sdrule);
+ 	ipvs_close();
+ }
+ 
+@@ -417,14 +420,28 @@ ipvs_talk(int cmd)
+ 			break;
+ 		case IP_VS_SO_SET_EDITDEST:
+ 			if ((result = ipvs_update_dest(srule, drule)) &&
+-			    (errno == ENOENT))
++                (errno == ENOENT)) {
+ 				result = ipvs_add_dest(srule, drule);
++            }
++            break;
++        case IP_VS_SO_SET_ADDSNAT:
++            result = ipvs_add_snat_dest(srule, sdrule);
++            break;
++        case  IP_VS_SO_SET_EDITSNAT:
++            if ((result = ipvs_update_snat_dest(srule, sdrule)) &&
++            (errno == ENOENT)) {
++                result = ipvs_add_snat_dest(srule, sdrule);
++            }
++            break;
++        case IP_VS_SO_SET_DELSNAT:
++            result = ipvs_del_snat_dest(srule, sdrule);
+ 			break;
+ 	}
+ 
+-	if (result)
++    if (result) {
+ 		log_message(LOG_INFO, "IPVS: %s", ipvs_strerror(errno));
+ }
++}
+ 
+ int
+ ipvs_syncd_cmd(int cmd, char *ifname, int state, int syncid)
+@@ -494,11 +511,13 @@ ipvs_group_cmd(int cmd, list vs_group, real_server * rs, char * vsgname)
+ 		vsg_entry = ELEMENT_DATA(e);
+ 		srule->af = vsg_entry->addr.ss_family;
+ 		if (vsg_entry->addr.ss_family == AF_INET6) {
+-			if (srule->netmask == 0xffffffff)
++            if (srule->netmask == 0xffffffff) {
+ 				srule->netmask = 128;
++            }
+ 			inet_sockaddrip6(&vsg_entry->addr, &srule->addr.in6);
+-		} else
++        } else {
+ 			srule->addr.ip = inet_sockaddrip4(&vsg_entry->addr);
++        }
+ 		srule->port = inet_sockaddrport(&vsg_entry->addr);
+ 
+ 		/* Talk to the IPVS channel */
+@@ -539,6 +558,47 @@ ipvs_group_cmd(int cmd, list vs_group, real_server * rs, char * vsgname)
+ 	}
+ }
+ 
++
++void
++ipvs_set_snat_rule(int cmd, virtual_server *vs, snat_rule *rs)
++{
++    memset(sdrule, 0, sizeof(ipvs_snat_dest_t));
++    strncpy(srule->sched_name, vs->sched, IP_VS_SCHEDNAME_MAXLEN);
++    srule->netmask = (vs->addr.ss_family == AF_INET6) ? 128 : ((u_int32_t) 0xffffffff);
++    srule->protocol = vs->service_type;
++
++    if (!parse_timeout(vs->timeout_persistence, &srule->timeout)) {
++        log_message(LOG_INFO, "IPVS : Virtual service -f [%d] illegal timeout\n", vs->vfwmark);
++    }
++
++    if (srule->timeout != 0 || vs->granularity_persistence) {
++        srule->flags = IP_VS_SVC_F_PERSISTENT;
++    }
++    
++    if (vs->syn_proxy) {
++        srule->flags |= IP_VS_CONN_F_SYNPROXY;
++    }
++
++    if (rs) {
++        if (cmd == IP_VS_SO_SET_ADDSNAT || 
++            cmd == IP_VS_SO_SET_DELSNAT ||
++            cmd == IP_VS_SO_SET_EDITSNAT) {
++            sdrule->af = rs->af;
++            sdrule->saddr = rs->saddr;
++            sdrule->smask = rs->smask;
++            sdrule->daddr = rs->daddr;
++            sdrule->dmask = rs->dmask;
++            sdrule->gw = rs->gw;
++            sdrule->conn_flags = rs->conn_flags;
++            sdrule->algo = rs->algo;
++            sdrule->new_gw = rs->new_gw;
++            strcpy(sdrule->out_dev, rs->out_dev);
++            sdrule->min_ip = rs->minip;
++            sdrule->max_ip = rs->maxip;
++        }
++    }
++}
++
+ /* Fill IPVS rule with root vs infos */
+ void
+ ipvs_set_rule(int cmd, virtual_server * vs, real_server * rs)
+@@ -733,6 +793,30 @@ ipvs_laddr_cmd(int cmd, list vs_group, virtual_server * vs)
+ 	return IPVS_SUCCESS;
+ }
+ 
++int
++ipvs_snat_cmd(int cmd, virtual_server *vs, snat_rule *rs)
++{
++    memset(srule, 0, sizeof(ipvs_service_t));
++    ipvs_set_snat_rule(cmd, vs, rs);
++
++    /* Set flag */
++    if (cmd == IP_VS_SO_SET_ADDSNAT && !rs->set) {
++        rs->set = 1;
++    }
++        
++    if (cmd == IP_VS_SO_SET_DELSNAT && rs->set) {
++        rs->set = 0;
++    }
++
++    srule->af = AF_INET;
++    srule->fwmark = vs->vfwmark;
++
++    /* Talk to the IPVS channel */
++    ipvs_talk(cmd);
++
++    return IPVS_SUCCESS;
++}
++
+ /* Set/Remove a RS or a local address group from a VS */
+ int
+ ipvs_cmd(int cmd, list vs_group, virtual_server * vs, real_server * rs)
+diff --git a/tools/keepalived/keepalived/check/ipwrapper.c b/tools/keepalived/keepalived/check/ipwrapper.c
+index f998654..301da15 100644
+--- a/tools/keepalived/keepalived/check/ipwrapper.c
++++ b/tools/keepalived/keepalived/check/ipwrapper.c
+@@ -27,11 +27,10 @@
+ #include "utils.h"
+ #include "notify.h"
+ #include "main.h"
+-
++#include "check_api.h"
+ #include "vrrp_if.h"
+ #include "vrrp_netlink.h"
+ 
+-
+ static struct {
+ 	struct nlmsghdr n;
+ 	struct ifaddrmsg ifa;
+@@ -311,11 +310,26 @@ clear_service_rs(list vs_group, virtual_server * vs, list l)
+ 	real_server *rs;
+ 	char rsip[INET6_ADDRSTRLEN];
+ 
++    if (IS_SNAT_SVC(vs)) {
++        snat_rule *sr;
+ 	for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
++            sr = ELEMENT_DATA(e);
++            if (ISALIVE(sr)) {
++                if (!ipvs_snat_cmd(LVS_CMD_DEL_SNATDEST, vs, sr)) {
++                    return 0;
++                }
++                UNSET_ALIVE(sr);
++            }
++        }
++        return 1;
++    }
++    
++    for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
+ 		rs = ELEMENT_DATA(e);
+ 		if (ISALIVE(rs)) {
+ 			if (!ipvs_cmd(LVS_CMD_DEL_DEST, vs_group, vs, rs))
+ 				return 0;
++            
+ 			UNSET_ALIVE(rs);
+ 			if (!vs->omega)
+ 				continue;
+@@ -365,10 +379,11 @@ clear_service_vs(list vs_group, virtual_server * vs)
+ 			if (ISALIVE(vs->s_svr))
+ 				if (!ipvs_cmd(LVS_CMD_DEL_DEST, vs_group, vs, vs->s_svr))
+ 					return 0;
+-		} else if (!clear_service_rs(vs_group, vs, vs->rs))
++        } else if (!clear_service_rs(vs_group, vs, vs->rs)) {
+ 			return 0;
+ 		/* The above will handle Omega case for VS as well. */
+ 	}
++    }
+ 
+ 	if (!ipvs_cmd(LVS_CMD_DEL, vs_group, vs, NULL))
+ 		return 0;
+@@ -395,6 +410,52 @@ clear_services(void)
+ 	return 1;
+ }
+ 
++/* select max weight of rs from vs 
++  * flag == 1: select max weight of alive rs from vs
++  */
++int
++get_max_weight(int flag, list rs)
++{
++	element e;
++	real_server *crs;
++	int max_weight = -1;
++	
++	for (e = LIST_HEAD(rs); e; ELEMENT_NEXT(e)) {
++		crs = ELEMENT_DATA(e);
++		if (flag == 1 && crs->alive == 0) {
++			continue;
++		}
++		if (max_weight > -1) {
++			max_weight = crs->weight > max_weight ? crs->weight : max_weight;
++		} else {
++			max_weight = crs->weight;
++		}
++	}
++
++	return max_weight;
++}
++
++
++static int
++init_service_snat_rs(virtual_server *vs)
++{
++    element e;
++    snat_rule *rs;
++    
++    for (e = LIST_HEAD(vs->rs); e; ELEMENT_NEXT(e)) {
++        rs = ELEMENT_DATA(e);
++        if (!ISALIVE(rs)) {
++            print_snat_rule(LVS_CMD_ADD_SNATDEST, rs);
++            if (!ipvs_snat_cmd(LVS_CMD_ADD_SNATDEST, vs, rs)) {
++                return 0;
++            }
++            SET_ALIVE(rs);
++       }
++    }
++
++    return 1;
++}
++
+ /* Set a realserver IPVS rules */
+ static int
+ init_service_rs(virtual_server * vs)
+@@ -402,6 +463,7 @@ init_service_rs(virtual_server * vs)
+ 	element e;
+ 	real_server *rs;
+ 
++    if (vs->abs_priority == 0) {
+ 	for (e = LIST_HEAD(vs->rs); e; ELEMENT_NEXT(e)) {
+ 		rs = ELEMENT_DATA(e);
+ 		/* In alpha mode, be pessimistic (or realistic?) and don't
+@@ -424,6 +486,34 @@ init_service_rs(virtual_server * vs)
+ 			SET_ALIVE(rs);
+ 		}
+ 	}
++    } else {
++        if (!vs->alpha) {
++            vs->cur_max_weight = get_max_weight(0, vs->rs);
++        }
++        for (e = LIST_HEAD(vs->rs); e; ELEMENT_NEXT(e)) {
++            rs = ELEMENT_DATA(e);
++            if (vs->alpha) {
++                UNSET_ALIVE(rs);
++                continue;
++            }
++
++            if (!ISALIVE(rs)) {
++                if (rs->weight == vs->cur_max_weight && 
++                    !ipvs_cmd(LVS_CMD_ADD_DEST, check_data->vs_group, vs, rs)) {
++                    return 0;
++                } else {
++                    SET_ALIVE(rs);
++                }
++           } else if (vs->vsgname) {
++                UNSET_ALIVE(rs);
++                if (rs->weight == vs->cur_max_weight && 
++                    !ipvs_cmd(LVS_CMD_ADD_DEST, check_data->vs_group, vs, rs)) {
++                    return 0;
++                }
++                SET_ALIVE(rs);
++            }
++        }
++    }
+ 
+ 	return 1;
+ }
+@@ -434,11 +524,12 @@ init_service_vs(virtual_server * vs)
+ {
+ 	/* Init the VS root */
+ 	if (!ISALIVE(vs) || vs->vsgname) {
+-		if (!ipvs_cmd(LVS_CMD_ADD, check_data->vs_group, vs, NULL))
++        if (!ipvs_cmd(LVS_CMD_ADD, check_data->vs_group, vs, NULL)) {
+ 			return 0;
+-		else
++        }  else {
+ 			SET_ALIVE(vs);
+ 	}
++    }
+ 
+ 	/*Set local ip address in "FNAT" mode of IPVS */
+ 	if ((vs->loadbalancing_kind == IP_VS_CONN_F_FULLNAT) && vs->local_addr_gname) { 
+@@ -447,14 +538,24 @@ init_service_vs(virtual_server * vs)
+ 	}
+ 
+ 	/* Processing real server queue */
+-	if (!LIST_ISEMPTY(vs->rs)) {
+-		if (!init_service_rs(vs))
++    if (NOT_SNAT_SVC(vs) && !LIST_ISEMPTY(vs->rs)) {
++        if (!init_service_rs(vs)) {
+ 			return 0;
+-		if (vs->alpha)
++        }
++        
++        if (vs->alpha) {
+ 			vs->quorum_state = DOWN;
+-		else
++        }  else {
+ 			netlink_vipaddress(check_data->vs_group, vs, UP);
+ 	}
++    }
++
++    if (IS_SNAT_SVC(vs) && !LIST_ISEMPTY(vs->rs)) {
++        //log_message(LOG_INFO, "before init_service_snat_rs\n");
++        if (!init_service_snat_rs(vs)) {
++            return 0;
++        }
++    }
+ 	return 1;
+ }
+ 
+@@ -579,12 +680,134 @@ update_quorum_state(virtual_server * vs)
+ 	}
+ }
+ 
++static void
++handle_abspriority_rs_down2up(virtual_server *vs, real_server *rs)
++{
++	element e;
++	real_server *tmp_rs;
++	char rsip[INET6_ADDRSTRLEN];
++	
++	log_message(LOG_INFO, "down2up: vs.alive=%d, vs.max_weight=%d, rs.weight=%d", 
++	                        vs->alive,  vs->cur_max_weight, rs->weight);
++	if ((rs->weight == vs->cur_max_weight || vs->cur_max_weight == -1) && !ISALIVE(rs)) {
++		log_message(LOG_INFO, "down2up: add(%s:%d, %d)", 
++		                        inet_sockaddrtos2(&rs->addr, rsip), 
++		                        ntohs(inet_sockaddrport(&rs->addr)), rs->weight);
++		if (vs->cur_max_weight == -1) {
++			vs->cur_max_weight = rs->weight;
++		}
++		ipvs_cmd(LVS_CMD_ADD_DEST, check_data->vs_group, vs, rs);
++	} else if (rs->weight > vs->cur_max_weight) {
++		/* first: del all rs in lvs */
++		log_message(LOG_INFO, "down2up: del all alive and setted rs in lvs");
++		for (e = LIST_HEAD(vs->rs); e; ELEMENT_NEXT(e)) {
++			tmp_rs = ELEMENT_DATA(e);
++			if (ISALIVE(tmp_rs) && (tmp_rs->set == 1) && tmp_rs->weight == vs->cur_max_weight) {
++				log_message(LOG_INFO, "down2up: del(%s:%d, %d)", 
++				                        inet_sockaddrtos2(&tmp_rs->addr, rsip), 
++				                        ntohs(inet_sockaddrport(&tmp_rs->addr)), tmp_rs->weight);
++				ipvs_cmd(LVS_CMD_DEL_DEST, check_data->vs_group, vs, tmp_rs);
++			}
++		}
++		
++		/*then: add current rs of max weight to lvs */
++		vs->cur_max_weight = rs->weight;
++		log_message(LOG_INFO, "down2up: add(%s:%d, %d)", 
++		                        inet_sockaddrtos2(&rs->addr, rsip), 
++		                        ntohs(inet_sockaddrport(&rs->addr)), 
++		                        rs->weight);
++		ipvs_cmd(LVS_CMD_ADD_DEST, check_data->vs_group, vs, rs);	
++	} else {
++		log_message(LOG_INFO, "down2up: nothing todo");
++	}
++	
++	SET_ALIVE(rs);
++	log_message(LOG_INFO, "ALLRS_STAT:");
++	for (e = LIST_HEAD(vs->rs); e; ELEMENT_NEXT(e)) {
++		tmp_rs = ELEMENT_DATA(e);
++		log_message(LOG_INFO, "  (%s:%d), alived=%d, weight=%d, set=%d",  
++		                        inet_sockaddrtos2(&tmp_rs->addr, rsip),
++		                        ntohs(inet_sockaddrport(&tmp_rs->addr)),
++		                        tmp_rs->alive, tmp_rs->weight, tmp_rs->set);
++	}
++	return;
++}
++
++/* Returns the num of alive rs */
++static int 
++alive_num_with_weight(virtual_server *vs, int weight)
++{
++	element e;
++	real_server *svr;
++	int count = 0;
++
++	for (e = LIST_HEAD(vs->rs); e; ELEMENT_NEXT(e)) {
++		svr = ELEMENT_DATA(e);
++		if (ISALIVE(svr) && svr->weight == weight) {
++			count += 1;
++		}
++	}
++	
++	return count;
++}
++
++static void
++handle_abspriority_rs_up2down(virtual_server *vs, real_server *rs)
++{
++	element e;
++	real_server *svr;
++	int max_weight = -1;
++	char rsip[INET6_ADDRSTRLEN];
++	
++	log_message(LOG_INFO, "up2down: vs.alive=%d, vs.max_weight=%d, rs.weight=%d",  
++	                        vs->alive, vs->cur_max_weight, rs->weight);
++	if (ISALIVE(rs) && (rs->set == 1) && rs->weight == vs->cur_max_weight) {
++		log_message(LOG_INFO, "up2down: del(%s:%d, %d)", inet_sockaddrtos2(&rs->addr, rsip), 
++		                        ntohs(inet_sockaddrport(&rs->addr)), rs->weight);
++		ipvs_cmd(LVS_CMD_DEL_DEST, check_data->vs_group, vs, rs);
++		UNSET_ALIVE(rs);
++		if (alive_num_with_weight(vs, vs->cur_max_weight) == 0) {
++			max_weight = get_max_weight(1, vs->rs);
++			if (max_weight != -1) {
++				log_message(LOG_INFO, "up2down: max weight of cur alive rs: %d",  max_weight);
++				for (e = LIST_HEAD(vs->rs); e; ELEMENT_NEXT(e)) {
++					svr = ELEMENT_DATA(e);
++					if (ISALIVE(svr) && (svr->set == 0) && svr->weight == max_weight) {
++						UNSET_ALIVE(svr);
++						log_message(LOG_INFO, "up2down: add(%s:%d, %d)",
++						                        inet_sockaddrtos2(&svr->addr, rsip), 
++						                        ntohs(inet_sockaddrport(&svr->addr)), 
++						                        svr->weight);
++						ipvs_cmd(LVS_CMD_ADD_DEST, check_data->vs_group, vs, svr);
++						SET_ALIVE(svr);
++					}
++				}
++			} else {
++				log_message(LOG_INFO, "up2down: all rs unusable");
++			}
++			vs->cur_max_weight = max_weight;
++		}
++	} else {
++		UNSET_ALIVE(rs);
++		log_message(LOG_INFO, "up2down: nothing todo");
++	}
++	
++	log_message(LOG_INFO, "ALLRS_STAT:");
++	for (e = LIST_HEAD(vs->rs); e; ELEMENT_NEXT(e)) {
++		svr = ELEMENT_DATA(e);
++		log_message(LOG_INFO, " (%s:%d) alived=%d, weight=%d, set=%d",   
++		                        inet_sockaddrtos2(&svr->addr, rsip), 
++		                        ntohs(inet_sockaddrport(&svr->addr)), 
++		                        svr->alive, svr->weight, svr->set);
++	}
++	return;
++}
++
+ /* manipulate add/remove rs according to alive state */
+ void
+ perform_svr_state(int alive, virtual_server * vs, real_server * rs)
+ {
+ 	char rsip[INET6_ADDRSTRLEN];
+-
+ 	/*
+ 	 * | ISALIVE(rs) | alive | context
+ 	 * | 0           | 0     | first check failed under alpha mode, unreachable here
+@@ -601,9 +824,15 @@ perform_svr_state(int alive, virtual_server * vs, real_server * rs)
+ 				    , ntohs(inet_sockaddrport(&vs->addr)));
+ 		/* Add only if we have quorum or no sorry server */
+ 		if (vs->quorum_state == UP || !vs->s_svr || !ISALIVE(vs->s_svr)) {
++			if (vs->abs_priority == 0) {
+ 			ipvs_cmd(LVS_CMD_ADD_DEST, check_data->vs_group, vs, rs);
+-		}
+ 		rs->alive = alive;
++			} else {
++				log_message(LOG_INFO, "abs_priority mode: down2up");
++				handle_abspriority_rs_down2up(vs, rs);
++			}
++		}
++		
+ 		if (rs->notify_up) {
+ 			log_message(LOG_INFO, "Executing [%s] for service [%s]:%d in VS [%s]:%d"
+ 					    , rs->notify_up
+@@ -630,9 +859,15 @@ perform_svr_state(int alive, virtual_server * vs, real_server * rs)
+ 		 * Remove only if we have quorum or no sorry server
+ 		 */
+ 		if (vs->quorum_state == UP || !vs->s_svr || !ISALIVE(vs->s_svr)) {
++			if (vs->abs_priority == 0) {
+ 			ipvs_cmd(LVS_CMD_DEL_DEST, check_data->vs_group, vs, rs);
+-		}
+ 		rs->alive = alive;
++			} else {
++				log_message(LOG_INFO, "abs_priority mode:up2down");
++				handle_abspriority_rs_up2down(vs, rs);
++			}
++		}
++
+ 		if (rs->notify_down) {
+ 			log_message(LOG_INFO, "Executing [%s] for service [%s]:%d in VS [%s]:%d"
+ 					    , rs->notify_down
+@@ -870,6 +1105,30 @@ vs_exist(virtual_server * old_vs)
+ 	return 0;
+ }
+ 
++
++static int
++snat_rs_exist(snat_rule *old_rs, list l)
++{
++    element e;
++    snat_rule *rs;
++
++    if (LIST_ISEMPTY(l)) {
++        return 0;
++    }
++
++    for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
++       rs = ELEMENT_DATA(e);
++       if (SNAT_RS_ISEQ(rs, old_rs)) {
++           rs->alive = old_rs->alive;
++           rs->set = old_rs->set;
++           return 1;
++       }
++    }
++
++    return 0;
++}
++
++
+ /* Check if rs is in new vs data */
+ static int
+ rs_exist(real_server * old_rs, list l)
+@@ -924,12 +1183,40 @@ get_rs_list(virtual_server * vs)
+ 	return NULL;
+ }
+ 
++/* Clear the diff rs of the old snat vs */
++static int
++clear_diff_snat_rs(virtual_server *old_vs)
++{
++    element e;
++    list l = old_vs->rs;
++    list new = get_rs_list(old_vs);
++    snat_rule *rs;
++
++    if (LIST_ISEMPTY(l)) {
++        return 1;
++    }
++
++    for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
++        rs = ELEMENT_DATA(e);
++        if (!snat_rs_exist(rs, new)) {
++            print_snat_rule(LVS_CMD_DEL_SNATDEST, rs);
++            /* Set alive flag to delete the failed inhibit entries */
++            if (!ipvs_snat_cmd(LVS_CMD_DEL_SNATDEST, old_vs, rs)) {
++                return 0;
++            }
++        }
++    }
++
++    return 1;
++}
++
+ /* Clear the diff rs of the old vs */
+ static int
+ clear_diff_rs(virtual_server * old_vs)
+ {
+ 	element e;
+ 	list l = old_vs->rs;
++	int new_max_weight = -1;
+ 	list new = get_rs_list(old_vs);
+ 	real_server *rs;
+ 	char rsip[INET6_ADDRSTRLEN];
+@@ -938,13 +1225,23 @@ clear_diff_rs(virtual_server * old_vs)
+ 	if (LIST_ISEMPTY(l))
+ 		return 1;
+ 
++	if (old_vs->abs_priority) {
++		new_max_weight = get_max_weight(0, new);
++		log_message(LOG_INFO, "abs_priority_mode: reload: max_weight=%d", new_max_weight);
++	}
+ 	for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
+ 		rs = ELEMENT_DATA(e);
+-		if (!rs_exist(rs, new)) {
++		if (((old_vs->abs_priority == 1) && ISALIVE(rs) && (rs->set == 1) && rs->weight < new_max_weight)
++			|| !rs_exist(rs, new)) {
++			if ((old_vs->abs_priority == 1) && ISALIVE(rs) && (rs->set == 1) && rs->weight < new_max_weight) {
++				log_message(LOG_INFO, "abs_priority_mode:%d(weight of rs[%s:%d]) < %d(weight of new_rs_list)", rs->weight, 
++					inet_sockaddrtos(&rs->addr), ntohs(inet_sockaddrport(&rs->addr)), new_max_weight);
++			} else {
+ 			/* Reset inhibit flag to delete inhibit entries */
+ 			log_message(LOG_INFO, "service [%s]:%d no longer exist"
+ 					    , inet_sockaddrtos(&rs->addr)
+ 					    , ntohs(inet_sockaddrport(&rs->addr)));
++			}
+ 			log_message(LOG_INFO, "Removing service [%s]:%d from VS [%s]:%d"
+ 					    , inet_sockaddrtos2(&rs->addr, rsip)
+ 					    , ntohs(inet_sockaddrport(&rs->addr))
+@@ -1052,21 +1349,34 @@ clear_diff_services(void)
+ 		 * reloaded.
+ 		 */
+ 		if (!vs_exist(vs)) {
+-			if (vs->vsgname)
+-				log_message(LOG_INFO, "Removing Virtual Server Group [%s]"
+-						    , vs->vsgname);
+-			else
+-				log_message(LOG_INFO, "Removing Virtual Server [%s]:%d"
+-						    , inet_sockaddrtos(&vs->addr)
+-						    , ntohs(inet_sockaddrport(&vs->addr)));
++            if (vs->vsgname) {
++                log_message(LOG_INFO, "Removing Virtual Server Group [%s]", 
++                    vs->vsgname);
++            } else {
++                if (vs->vfwmark) {
++                    log_message(LOG_INFO, "Removing Virtual Server -f [%d]",
++                       vs->vfwmark);
++                } else {
++                    log_message(LOG_INFO, "Removing Virtual Server [%s]:%d",
++                        inet_sockaddrtos(&vs->addr),
++                        ntohs(inet_sockaddrport(&vs->addr)));
++                }
++            }
+ 
+ 			/* Clear VS entry */
+-			if (!clear_service_vs(old_check_data->vs_group, vs))
++            if (!clear_service_vs(old_check_data->vs_group, vs)) {
+ 				return 0;
++            }
+ 		} else {
+ 			/* If vs exist, perform rs pool diff */
+-			if (!clear_diff_rs(vs))
++            if (NOT_SNAT_SVC(vs) && !clear_diff_rs(vs)) {
++                return 0;
++            }
++            
++            if (IS_SNAT_SVC(vs) && !clear_diff_snat_rs(vs)) {
+ 				return 0;
++            }
++            
+ 			if (vs->s_svr)
+ 				if (ISALIVE(vs->s_svr))
+ 					if (!ipvs_cmd(LVS_CMD_DEL_DEST
+@@ -1074,6 +1384,7 @@ clear_diff_services(void)
+ 						      , vs
+ 						      , vs->s_svr))
+ 						return 0;
++                    
+ 			/* perform local address diff */
+ 			if (!clear_diff_laddr(vs))
+ 				return 0;
+@@ -1082,3 +1393,4 @@ clear_diff_services(void)
+ 
+ 	return 1;
+ }
++
+diff --git a/tools/keepalived/keepalived/etc/init.d/keepalived.init b/tools/keepalived/keepalived/etc/init.d/keepalived.init
+index 0724c4c..b2d4e59 100755
+--- a/tools/keepalived/keepalived/etc/init.d/keepalived.init
++++ b/tools/keepalived/keepalived/etc/init.d/keepalived.init
+@@ -17,7 +17,8 @@
+ RETVAL=0
+ 
+ prog="keepalived"
+-
++VRRP_PID_FILE=/var/run/vrrp.pid
++CHECKERS_PID_FILE=/var/run/checkers.pid
+ start() {
+     echo -n $"Starting $prog: "
+     daemon keepalived ${KEEPALIVED_OPTIONS}
+@@ -26,11 +27,32 @@ start() {
+     [ $RETVAL -eq 0 ] && touch /var/lock/subsys/$prog
+ }
+ 
++check_stop() {
++    local cnt=0
++    while checkpid $1 2>&1
++    do
++    	let "cnt++"
++    	if [ $cnt -gt 2 ];then
++    	    break
++        fi
++        sleep 1
++    done
++}
++
+ stop() {
++    local vrrppid checkerpid
++    if [ -f "$VRRP_PID_FILE" ];then
++    	vrrppid=`cat $VRRP_PID_FILE`
++    fi
++    if [ -f "$CHECKERS_PID_FILE" ]; then
++    	chkerspid=`cat $CHECKERS_PID_FILE`
++    fi
+     echo -n $"Stopping $prog: "
+     killproc keepalived
+     RETVAL=$?
+     echo
++    check_stop "$chkerspid"
++    check_stop "$vrrppid"
+     [ $RETVAL -eq 0 ] && rm -f /var/lock/subsys/$prog
+ }
+ 
+diff --git a/tools/keepalived/keepalived/include/check_api.h b/tools/keepalived/keepalived/include/check_api.h
+index 2a00261..3d0feb5 100644
+--- a/tools/keepalived/keepalived/include/check_api.h
++++ b/tools/keepalived/keepalived/include/check_api.h
+@@ -67,5 +67,7 @@ extern void install_checkers_keyword(void);
+ extern void update_checker_activity(sa_family_t, void *, int);
+ extern void checker_set_dst(struct sockaddr_storage *);
+ extern void checker_set_dst_port(struct sockaddr_storage *, uint16_t);
++extern void print_snat_rule(int, snat_rule *);
+ 
+ #endif
++
+diff --git a/tools/keepalived/keepalived/include/check_data.h b/tools/keepalived/keepalived/include/check_data.h
+index 27bf7b6..046fc95 100644
+--- a/tools/keepalived/keepalived/include/check_data.h
++++ b/tools/keepalived/keepalived/include/check_data.h
+@@ -87,6 +87,25 @@ typedef struct _real_server {
+ 	int reload_alive;	/* alpha mode will reset rs to unalive. So save the status before reload here */
+ } real_server;
+ 
++
++/* snat rule definetion */
++typedef struct __snat_rule {
++    union nf_inet_addr saddr;
++    uint32_t smask;
++    union nf_inet_addr daddr;
++    uint32_t dmask;
++    union nf_inet_addr gw;
++    union nf_inet_addr minip;
++    union nf_inet_addr maxip;
++    uint32_t conn_flags;
++    uint16_t af;
++    uint8_t algo;
++    union nf_inet_addr new_gw;
++    char out_dev[IP_VS_IFNAME_MAXLEN];
++    int alive;
++    int set;
++} snat_rule;
++
+ /* local ip address group definition */
+ typedef struct _local_addr_entry {
+ 	struct sockaddr_storage addr;
+@@ -123,6 +142,8 @@ typedef struct _virtual_server {
+ 	uint16_t service_type;
+ 	long delay_loop;
+ 	int ha_suspend;
++	int abs_priority;
++	int cur_max_weight;
+ 	char sched[SCHED_MAX_LENGTH];
+ 	char timeout_persistence[MAX_TIMEOUT_LENGTH];
+ 	unsigned loadbalancing_kind;
+@@ -163,6 +184,23 @@ static inline int __ip6_addr_equal(const struct in6_addr *a1,
+ 		 (a1->s6_addr32[3] ^ a2->s6_addr32[3])) == 0);
+ }
+ 
++
++static inline int addr_equal(int af, const union nf_inet_addr *s1, 
++                   const union nf_inet_addr *s2)
++{
++    if (af == AF_INET) {
++        if (s1->in.s_addr == s2->in.s_addr) {
++            return 1;
++        }
++    } else if (af == AF_INET6) {
++        if (__ip6_addr_equal(&s1->in6, &s2->in6)) {
++            return 1;
++        }
++    }
++
++    return 0;
++}
++
+ static inline int sockstorage_equal(const struct sockaddr_storage *s1,
+ 				    const struct sockaddr_storage *s2)
+ {
+@@ -211,16 +249,32 @@ static inline int inaddr_equal(sa_family_t family, void *addr1, void *addr2)
+ 	return 0;
+ }
+ 
++#define SNAT_NONE               0x0000
++#define SNAT_ADDR               0x0001
++#define SNAT_MASK               0x0002
++
++typedef struct _snat_rule_addr_mask {
++    union nf_inet_addr addr;
++    uint16_t af;
++    uint32_t mask;
++} snat_rule_addr_mask;
++
+ /* macro utility */
++#define IS_SNAT_SVC(S) (((S)->vfwmark) == 1)
++#define NOT_SNAT_SVC(s) (((s)->vfwmark) != 1)
++
+ #define ISALIVE(S)	((S)->alive)
+ #define SET_ALIVE(S)	((S)->alive = 1)
+ #define UNSET_ALIVE(S)	((S)->alive = 0)
+ #define VHOST(V)	((V)->virtualhost)
+ 
++#define DEFAULT_SNAT_SCHED "snat_sched"
++
+ #define VS_ISEQ(X,Y)	(sockstorage_equal(&(X)->addr,&(Y)->addr)			&&\
+ 			 (X)->vfwmark                 == (Y)->vfwmark			&&\
+ 			 (X)->service_type            == (Y)->service_type		&&\
+ 			 (X)->loadbalancing_kind      == (Y)->loadbalancing_kind	&&\
++			 (X)->abs_priority == (Y)->abs_priority &&\
+ 			 (X)->nat_mask                == (Y)->nat_mask			&&\
+ 			 (X)->granularity_persistence == (Y)->granularity_persistence	&&\
+ 			 (X)->syn_proxy		      == (Y)->syn_proxy			&&\
+@@ -240,6 +294,12 @@ static inline int inaddr_equal(sa_family_t family, void *addr1, void *addr2)
+ #define RS_ISEQ(X,Y)	(sockstorage_equal(&(X)->addr,&(Y)->addr) &&	\
+ 			 (X)->iweight   == (Y)->iweight)
+ 
++#define SNAT_RS_ISEQ(X, Y) (addr_equal((X)->af, &(X)->saddr, &(Y)->saddr) && (X)->smask == (Y)->smask && \
++            addr_equal((X)->af, &(X)->daddr, &(Y)->daddr) &&  (X)->dmask == (Y)->dmask && \
++            addr_equal((X)->af, &(X)->gw, &(Y)->gw) && !strcmp((X)->out_dev, (Y)->out_dev))
++
++
++
+ /* Global vars exported */
+ extern check_conf_data *check_data;
+ extern check_conf_data *old_check_data;
+@@ -261,4 +321,6 @@ extern check_conf_data *alloc_check_data(void);
+ extern void free_check_data(check_conf_data *);
+ extern void dump_check_data(check_conf_data *);
+ 
++extern void alloc_snat_rule(void);
++
+ #endif
+diff --git a/tools/keepalived/keepalived/include/ipvswrapper.h b/tools/keepalived/keepalived/include/ipvswrapper.h
+index fadb574..ab2cddb 100644
+--- a/tools/keepalived/keepalived/include/ipvswrapper.h
++++ b/tools/keepalived/keepalived/include/ipvswrapper.h
+@@ -100,4 +100,6 @@ extern int ipvs_syncd_cmd(int, char *, int, int);
+ extern void ipvs_syncd_master(char *, int);
+ extern void ipvs_syncd_backup(char *, int);
+ 
++extern int ipvs_snat_cmd(int, virtual_server *, snat_rule *);
++
+ #endif
+diff --git a/tools/keepalived/keepalived/include/ipwrapper.h b/tools/keepalived/keepalived/include/ipwrapper.h
+index 7899cbf..eb04a1b 100644
+--- a/tools/keepalived/keepalived/include/ipwrapper.h
++++ b/tools/keepalived/keepalived/include/ipwrapper.h
+@@ -49,6 +49,8 @@
+ #define LVS_CMD_EDIT_DEST	IP_VS_SO_SET_EDITDEST
+ #define LVS_CMD_ADD_LADDR	IP_VS_SO_SET_ADDLADDR
+ #define LVS_CMD_DEL_LADDR       IP_VS_SO_SET_DELLADDR
++#define LVS_CMD_ADD_SNATDEST IP_VS_SO_SET_ADDSNAT
++#define LVS_CMD_DEL_SNATDEST IP_VS_SO_SET_DELSNAT
+ 
+ /* prototypes */
+ extern void perform_svr_state(int, virtual_server *, real_server *);
+@@ -59,4 +61,6 @@ extern int init_services(void);
+ extern int clear_services(void);
+ extern int clear_diff_services(void);
+ 
++extern int get_max_weight(int flag, list rs);
++
+ #endif
+diff --git a/tools/keepalived/keepalived/libipvs-2.6/ip_vs.h b/tools/keepalived/keepalived/libipvs-2.6/ip_vs.h
+index f15bfd4..79be2c0 100644
+--- a/tools/keepalived/keepalived/libipvs-2.6/ip_vs.h
++++ b/tools/keepalived/keepalived/libipvs-2.6/ip_vs.h
+@@ -17,7 +17,7 @@
+ #include <netlink/genl/ctrl.h>
+ #endif
+ 
+-#define IP_VS_VERSION_CODE	0x010201
++#define IP_VS_VERSION_CODE	0x010202
+ #define NVERSION(version)			\
+ 	(version >> 16) & 0xFF,			\
+ 	(version >> 8) & 0xFF,			\
+@@ -61,7 +61,10 @@
+ #define IP_VS_SO_SET_ZERO	(IP_VS_BASE_CTL+15)
+ #define IP_VS_SO_SET_ADDLADDR	(IP_VS_BASE_CTL+16)
+ #define IP_VS_SO_SET_DELLADDR	(IP_VS_BASE_CTL+17)
+-#define IP_VS_SO_SET_MAX	IP_VS_SO_SET_DELLADDR	
++#define IP_VS_SO_SET_ADDSNAT (IP_VS_BASE_CTL + 18)
++#define IP_VS_SO_SET_DELSNAT (IP_VS_BASE_CTL + 19)
++#define IP_VS_SO_SET_EDITSNAT (IP_VS_BASE_CTL + 20)
++#define IP_VS_SO_SET_MAX	 IP_VS_SO_SET_EDITSNAT	
+ 
+ #define IP_VS_SO_GET_VERSION	IP_VS_BASE_CTL
+ #define IP_VS_SO_GET_INFO	(IP_VS_BASE_CTL+1)
+@@ -72,7 +75,8 @@
+ #define IP_VS_SO_GET_TIMEOUT	(IP_VS_BASE_CTL+6)
+ #define IP_VS_SO_GET_DAEMON	(IP_VS_BASE_CTL+7)
+ #define IP_VS_SO_GET_LADDRS	(IP_VS_BASE_CTL+8)
+-#define IP_VS_SO_GET_MAX	IP_VS_SO_GET_LADDRS
++#define IP_VS_SO_GET_SNAT (IP_VS_BASE_CTL + 9) /* not used now */
++#define IP_VS_SO_GET_MAX	 IP_VS_SO_GET_SNAT
+ 
+ 
+ /*
+@@ -175,6 +179,36 @@ struct ip_vs_dest_user {
+ 	union nf_inet_addr	addr;
+ };
+ 
++struct ip_vs_dest_snat_user {
++        union nf_inet_addr saddr;
++        u_int32_t smask;
++        union nf_inet_addr daddr;
++        u_int32_t dmask;
++        union nf_inet_addr gw;
++        union nf_inet_addr min_ip;
++        union nf_inet_addr max_ip;
++        u_int8_t algo;
++        union nf_inet_addr new_gw;
++        u_int16_t af;
++        unsigned conn_flags; /* connection flags */
++        char out_dev[IP_VS_IFNAME_MAXLEN];
++};
++
++struct ip_vs_dest_snat_kern {
++        union nf_inet_addr saddr;
++        u_int32_t smask;
++        union nf_inet_addr daddr;
++        u_int32_t dmask;
++        union nf_inet_addr gw;
++        union nf_inet_addr min_ip;
++        union nf_inet_addr max_ip;
++        u_int8_t algo;
++        union nf_inet_addr new_gw;
++        u_int16_t af;
++        unsigned conn_flags; /* connection flags */
++        char out_dev[IP_VS_IFNAME_MAXLEN];
++};
++
+ struct ip_vs_laddr_kern {
+ 	__be32			addr;	/* ipv4 address */
+ };
+@@ -283,6 +317,8 @@ struct ip_vs_dest_entry_kern {
+ 
+ 	/* statistics */
+ 	struct ip_vs_stats_user stats;
++	/* snat rule */
++	struct ip_vs_dest_snat_user snat_rule;
+ };
+ 
+ struct ip_vs_dest_entry {
+@@ -300,6 +336,7 @@ struct ip_vs_dest_entry {
+ 
+ 	/* statistics */
+ 	struct ip_vs_stats_user stats;
++	struct ip_vs_dest_snat_user snat_rule;
+ 	u_int16_t		af;
+ 	union nf_inet_addr	addr;
+ };
+@@ -466,6 +503,11 @@ enum {
+ 	IPVS_CMD_DEL_LADDR , 
+ 	IPVS_CMD_GET_LADDR , 
+ 
++	IPVS_CMD_NEW_SNATDEST,
++	IPVS_CMD_SET_SNATDEST,
++	IPVS_CMD_DEL_SNATDEST,
++	IPVS_CMD_GET_SNATDEST,
++
+ 	__IPVS_CMD_MAX,
+ };
+ 
+@@ -481,6 +523,7 @@ enum {
+ 	IPVS_CMD_ATTR_TIMEOUT_TCP_FIN,	/* TCP FIN wait timeout */
+ 	IPVS_CMD_ATTR_TIMEOUT_UDP,	/* UDP timeout */
+ 	IPVS_CMD_ATTR_LADDR , 		/* local address */
++	IPVS_CMD_ATTR_SNATDEST,                 /*nested snat rule attribute*/
+ 	__IPVS_CMD_ATTR_MAX,
+ };
+ 
+@@ -534,16 +577,39 @@ enum {
+ 	IPVS_DEST_ATTR_PERSIST_CONNS,	/* persistent connections */
+ 
+ 	IPVS_DEST_ATTR_STATS,		/* nested attribute for dest stats */
++	
++        IPVS_DEST_ATTR_SNATRULE, /* nested attribute for dest snat rule */
+ 	__IPVS_DEST_ATTR_MAX,
+ };
+ 
+ #define IPVS_DEST_ATTR_MAX (__IPVS_DEST_ATTR_MAX - 1)
+ 
++/**
++  * Attribute used to describe a snat dest (snat rule)
++  * Used inside nested attribute IPVS_CMD_ATTR_SNATDEST and IPVS_CMD_ATTR_DEST
++  */
++enum {
++    IPVS_SNAT_DEST_ATTR_UNSPEC = 0,
++    IPVS_SNAT_DEST_ATTR_FADDR,
++    IPVS_SNAT_DEST_ATTR_FMASK,
++    IPVS_SNAT_DEST_ATTR_DADDR,
++    IPVS_SNAT_DEST_ATTR_DMASK,
++    IPVS_SNAT_DEST_ATTR_GW,
++    IPVS_SNAT_DEST_ATTR_MINIP,
++    IPVS_SNAT_DEST_ATTR_MAXIP,
++    IPVS_SNAT_DEST_ATTR_ALGO,
++    IPVS_SNAT_DEST_ATTR_NEWGW,
++    IPVS_SNAT_DEST_ATTR_CONNFLAG,
++    IPVS_SNAT_DEST_ATTR_OUTDEV,
++    __IPVS_SNAT_DEST_ATTR_MAX,
++};
++
++#define IPVS_SNAT_DEST_ATTR_MAX (__IPVS_SNAT_DEST_ATTR_MAX - 1)
++
+ /*
+  * Attirbutes used to describe a local address
+  *
+  */
+-
+ enum {
+ 	IPVS_LADDR_ATTR_UNSPEC = 0 , 
+ 	IPVS_LADDR_ATTR_ADDR,
+@@ -600,6 +666,13 @@ enum {
+ 	__IPVS_INFO_ATTR_MAX,
+ };
+ 
++/* SNAT ip pool select algorithm */
++enum {
++        IPVS_SNAT_IPS_NORMAL = 0, /* src-ip/dst-ip */
++        IPVS_SNAT_IPS_PERSITENT,  /* src-ip */
++        IPVS_SNAT_IPS_RANDOM,     /* src-ip/dst-ip/src-port */
++};
++
+ #define IPVS_INFO_ATTR_MAX (__IPVS_INFO_ATTR_MAX - 1)
+ 
+ #ifdef LIBIPVS_USE_NL
+@@ -610,6 +683,7 @@ extern struct nla_policy ipvs_stats_policy[IPVS_STATS_ATTR_MAX + 1];
+ extern struct nla_policy ipvs_info_policy[IPVS_INFO_ATTR_MAX + 1];
+ extern struct nla_policy ipvs_daemon_policy[IPVS_DAEMON_ATTR_MAX + 1];
+ extern struct nla_policy ipvs_laddr_policy[IPVS_LADDR_ATTR_MAX + 1];
++extern struct nla_policy ip_vs_snat_dest_policy[IPVS_SNAT_DEST_ATTR_MAX + 1];
+ #endif
+ 
+ /* End of Generic Netlink interface definitions */
+diff --git a/tools/keepalived/keepalived/libipvs-2.6/ip_vs_nl_policy.c b/tools/keepalived/keepalived/libipvs-2.6/ip_vs_nl_policy.c
+index 045bcdc..5a36fec 100644
+--- a/tools/keepalived/keepalived/libipvs-2.6/ip_vs_nl_policy.c
++++ b/tools/keepalived/keepalived/libipvs-2.6/ip_vs_nl_policy.c
+@@ -10,6 +10,7 @@ struct nla_policy ipvs_cmd_policy[IPVS_CMD_ATTR_MAX + 1] = {
+ 	[IPVS_CMD_ATTR_TIMEOUT_TCP_FIN]	= { .type = NLA_U32 },
+ 	[IPVS_CMD_ATTR_TIMEOUT_UDP]	= { .type = NLA_U32 },
+ 	[IPVS_CMD_ATTR_LADDR]		= { .type = NLA_NESTED},
++	[IPVS_CMD_ATTR_SNATDEST]         = { .type = NLA_NESTED},
+ };
+ 
+ struct nla_policy ipvs_service_policy[IPVS_SVC_ATTR_MAX + 1] = {
+@@ -41,6 +42,22 @@ struct nla_policy ipvs_dest_policy[IPVS_DEST_ATTR_MAX + 1] = {
+ 	[IPVS_DEST_ATTR_INACT_CONNS]	= { .type = NLA_U32 },
+ 	[IPVS_DEST_ATTR_PERSIST_CONNS]	= { .type = NLA_U32 },
+ 	[IPVS_DEST_ATTR_STATS]		= { .type = NLA_NESTED },
++        [IPVS_DEST_ATTR_SNATRULE] = {.type = NLA_NESTED},
++};
++
++/* Policy used for attributes in nested attribute IPVS_CMD_ATTR_SNAT_DEAST */
++struct nla_policy ip_vs_snat_dest_policy[IPVS_SNAT_DEST_ATTR_MAX + 1] = {
++        [IPVS_SNAT_DEST_ATTR_FADDR] = {.type = NLA_UNSPEC, .maxlen = sizeof(struct in6_addr)},
++        [IPVS_SNAT_DEST_ATTR_FMASK] = {.type = NLA_U32},
++        [IPVS_SNAT_DEST_ATTR_DADDR] = {.type = NLA_UNSPEC, .maxlen = sizeof(struct in6_addr)},
++        [IPVS_SNAT_DEST_ATTR_DMASK] = {.type = NLA_U32},
++        [IPVS_SNAT_DEST_ATTR_GW] = {.type = NLA_UNSPEC, .maxlen = sizeof(struct in6_addr)},
++        [IPVS_SNAT_DEST_ATTR_MINIP] = {.type = NLA_UNSPEC, .maxlen = sizeof(struct in6_addr)},
++        [IPVS_SNAT_DEST_ATTR_MAXIP] = {.type = NLA_UNSPEC, .maxlen = sizeof(struct in6_addr)},
++        [IPVS_SNAT_DEST_ATTR_ALGO] = {.type = NLA_U8},
++        [IPVS_SNAT_DEST_ATTR_NEWGW] = {.type = NLA_UNSPEC, .maxlen = sizeof(struct in6_addr)},
++        [IPVS_SNAT_DEST_ATTR_CONNFLAG] = {.type = NLA_U32},
++        [IPVS_SNAT_DEST_ATTR_OUTDEV] = {.type = NLA_STRING, .maxlen = IP_VS_IFNAME_MAXLEN},
+ };
+ 
+ struct nla_policy ipvs_laddr_policy[IPVS_LADDR_ATTR_MAX + 1] = {
+diff --git a/tools/keepalived/keepalived/libipvs-2.6/libipvs.c b/tools/keepalived/keepalived/libipvs-2.6/libipvs.c
+index 8170d49..fc14d0a 100644
+--- a/tools/keepalived/keepalived/libipvs-2.6/libipvs.c
++++ b/tools/keepalived/keepalived/libipvs-2.6/libipvs.c
+@@ -80,19 +80,20 @@ static int ipvs_nl_noop_cb(struct nl_msg *msg, void *arg)
+ int ipvs_nl_send_message(struct nl_msg *msg, nl_recvmsg_msg_cb_t func, void *arg)
+ {
+ 	int err = EINVAL;
+-
+ 	sock = nl_handle_alloc();
+ 	if (!sock) {
+ 		nlmsg_free(msg);
+ 		return -1;
+ 	}
+ 
+-	if (genl_connect(sock) < 0)
++	if (genl_connect(sock) < 0) {
+ 		goto fail_genl;
++	}
+ 
+ 	family = genl_ctrl_resolve(sock, IPVS_GENL_NAME);
+-	if (family < 0)
++	if (family < 0) {
+ 		goto fail_genl;
++       }
+ 
+ 	/* To test connections and set the family */
+ 	if (msg == NULL) {
+@@ -101,19 +102,21 @@ int ipvs_nl_send_message(struct nl_msg *msg, nl_recvmsg_msg_cb_t func, void *arg
+ 		return 0;
+ 	}
+ 
+-	if (nl_socket_modify_cb(sock, NL_CB_VALID, NL_CB_CUSTOM, func, arg) != 0)
++	if (nl_socket_modify_cb(sock, NL_CB_VALID, NL_CB_CUSTOM, func, arg) != 0) {
+ 		goto fail_genl;
++		}
+ 
+-	if (nl_send_auto_complete(sock, msg) < 0)
++	if (nl_send_auto_complete(sock, msg) < 0) {
+ 		goto fail_genl;
++        }
+ 
+-	if ((err = -nl_recvmsgs_default(sock)) > 0)
++	if ((err = -nl_recvmsgs_default(sock)) > 0) {
+ 		goto fail_genl;
++        }
+ 
+ 	nlmsg_free(msg);
+ 
+ 	nl_handle_destroy(sock);
+-
+ 	return 0;
+ 
+ fail_genl:
+@@ -220,8 +223,9 @@ static int ipvs_nl_fill_service_attr(struct nl_msg *msg, ipvs_service_t *svc)
+ 				     .mask = ~0 };
+ 
+ 	nl_service = nla_nest_start(msg, IPVS_CMD_ATTR_SERVICE);
+-	if (!nl_service)
++	if (!nl_service) {
+ 		return -1;
++    }
+ 
+ 	NLA_PUT_U16(msg, IPVS_SVC_ATTR_AF, svc->af);
+ 
+@@ -297,8 +301,8 @@ int ipvs_update_service_by_options(ipvs_service_t *svc, unsigned int options)
+ 		fprintf(stderr, "%s\n", ipvs_strerror(errno));
+ 		exit(1);
+ 	}
+-	ipvs_service_entry_2_user(entry, &user);
+ 
++	ipvs_service_entry_2_user(entry, &user);
+ 	if( options & OPT_SCHEDULER ) {
+ 		strcpy(user.sched_name, svc->sched_name);
+ 	}
+@@ -417,7 +421,122 @@ static int ipvs_nl_fill_dest_attr(struct nl_msg *msg, ipvs_dest_t *dst)
+ nla_put_failure:
+ 	return -1;
+ }
++
++static int ipvs_nl_fill_snat_dest_attr(struct nl_msg *msg, ipvs_snat_dest_t *dst)
++{
++    struct nlattr *nl_snat_dest;
++    
++    nl_snat_dest = nla_nest_start(msg, IPVS_CMD_ATTR_SNATDEST);
++    if (!nl_snat_dest) {
++        return -1;
++    }
++    
++    /* add special attr */
++    NLA_PUT(msg, IPVS_SNAT_DEST_ATTR_FADDR, sizeof(dst->saddr), &dst->saddr);
++    NLA_PUT_U32(msg, IPVS_SNAT_DEST_ATTR_FMASK, dst->smask);
++    NLA_PUT(msg, IPVS_SNAT_DEST_ATTR_DADDR, sizeof(dst->daddr), &dst->daddr);
++    NLA_PUT_U32(msg, IPVS_SNAT_DEST_ATTR_DMASK, dst->dmask);
++    NLA_PUT(msg, IPVS_SNAT_DEST_ATTR_GW, sizeof(dst->gw), &dst->gw);
++    NLA_PUT(msg, IPVS_SNAT_DEST_ATTR_MINIP, sizeof(dst->min_ip), &dst->min_ip);
++    NLA_PUT(msg, IPVS_SNAT_DEST_ATTR_MAXIP, sizeof(dst->max_ip), &dst->max_ip);
++    NLA_PUT_U8(msg, IPVS_SNAT_DEST_ATTR_ALGO,  dst->algo);
++    NLA_PUT(msg, IPVS_SNAT_DEST_ATTR_NEWGW, sizeof(dst->new_gw), &dst->new_gw);
++    NLA_PUT_U32(msg, IPVS_SNAT_DEST_ATTR_CONNFLAG, dst->conn_flags & IP_VS_CONN_F_FWD_MASK);
++    NLA_PUT_STRING(msg, IPVS_SNAT_DEST_ATTR_OUTDEV, dst->out_dev);
++    
++    nla_nest_end(msg, nl_snat_dest);
++    return 0;
++    
++nla_put_failure:
++    return -1;
++}
++#endif
++
++int ipvs_add_snat_dest(ipvs_service_t *svc, ipvs_snat_dest_t *snat_dest)
++{
++    ipvs_func = ipvs_add_snat_dest;
++ #ifdef LIBIPVS_USE_NL
++    if (try_nl) {
++        struct nl_msg *msg = ipvs_nl_message(IPVS_CMD_NEW_SNATDEST, 0);
++        if (!msg) {
++            return -1;
++        }
++        
++        if (ipvs_nl_fill_service_attr(msg, svc)) {
++            goto nla_put_failure;
++        }
++
++        if (ipvs_nl_fill_snat_dest_attr(msg, snat_dest)) {
++            goto nla_put_failure;
++        }
++        
++        int ret = ipvs_nl_send_message(msg, ipvs_nl_noop_cb, NULL);
++        return ret;
++        
++nla_put_failure:
++        nlmsg_free(msg);
++        return -1;       
++    }
++#endif
++
++    return -1;
++}
++
++int ipvs_update_snat_dest(ipvs_service_t *svc, ipvs_snat_dest_t *snat_dest)
++{
++    ipvs_func = ipvs_update_snat_dest;
++#ifdef LIBIPVS_USE_NL
++    if (try_nl) {
++        struct nl_msg *msg = ipvs_nl_message(IPVS_CMD_SET_SNATDEST, 0);
++        if (!msg) {
++            return -1;
++        }
++        
++        if (ipvs_nl_fill_service_attr(msg, svc)) {
++            goto nla_put_failure;
++        }
++
++        if (ipvs_nl_fill_snat_dest_attr(msg, snat_dest)) {
++            goto nla_put_failure;
++        }
++
++        return ipvs_nl_send_message(msg, ipvs_nl_noop_cb, NULL);
++        
++nla_put_failure:
++        nlmsg_free(msg);
++        return -1;       
++    }
++#endif
++
++    return -1;
++}
++
++int ipvs_del_snat_dest(ipvs_service_t *svc, ipvs_snat_dest_t *snat_dest)
++{
++	ipvs_func = ipvs_del_snat_dest;
++#ifdef LIBIPVS_USE_NL
++	if (try_nl) {
++		struct nl_msg *msg = ipvs_nl_message(IPVS_CMD_DEL_SNATDEST, 0);
++		if (!msg) {
++		    return -1;
++		}
++		if (ipvs_nl_fill_service_attr(msg, svc)) {
++		    goto nla_put_failure;
++	        }
++	        
++		if (ipvs_nl_fill_snat_dest_attr(msg, snat_dest)) {
++		    goto nla_put_failure;
++		}
++		
++		return ipvs_nl_send_message(msg, ipvs_nl_noop_cb, NULL);
++
++nla_put_failure:
++		nlmsg_free(msg);
++		return -1;
++	}
+ #endif
++        return -1;
++}
+ 
+ int ipvs_add_dest(ipvs_service_t *svc, ipvs_dest_t *dest)
+ {
+@@ -709,6 +828,41 @@ static int ipvs_parse_stats(struct ip_vs_stats_user *stats, struct nlattr *nla)
+ 
+ }
+ 
++static int ipvs_parse_snat_rule(struct ip_vs_dest_snat_user* snat_rule, struct nlattr *nla) 
++{
++    struct nlattr *attrs[IPVS_SNAT_DEST_ATTR_MAX + 1];
++    if (nla_parse_nested(attrs, IPVS_SNAT_DEST_ATTR_MAX, nla, ip_vs_snat_dest_policy)) {
++        return -1;
++    }
++
++    if (!(attrs[IPVS_SNAT_DEST_ATTR_FADDR] &&
++            attrs[IPVS_SNAT_DEST_ATTR_FMASK] &&
++            attrs[IPVS_SNAT_DEST_ATTR_DADDR] &&
++            attrs[IPVS_SNAT_DEST_ATTR_DMASK] &&
++            attrs[IPVS_SNAT_DEST_ATTR_GW] &&
++            attrs[IPVS_SNAT_DEST_ATTR_MINIP] &&
++            attrs[IPVS_SNAT_DEST_ATTR_MAXIP] &&
++            attrs[IPVS_SNAT_DEST_ATTR_ALGO] &&
++            attrs[IPVS_SNAT_DEST_ATTR_NEWGW] &&
++            attrs[IPVS_SNAT_DEST_ATTR_OUTDEV] && 
++            attrs[IPVS_SNAT_DEST_ATTR_CONNFLAG])) {
++        return -1;
++    }
++
++    memcpy(&snat_rule->saddr, nla_data(attrs[IPVS_SNAT_DEST_ATTR_FADDR]), sizeof(snat_rule->saddr));    
++    snat_rule->smask= nla_get_u32(attrs[IPVS_SNAT_DEST_ATTR_FMASK]);
++    memcpy(&snat_rule->daddr, nla_data(attrs[IPVS_SNAT_DEST_ATTR_DADDR]), sizeof(snat_rule->daddr));
++    snat_rule->dmask= nla_get_u32(attrs[IPVS_SNAT_DEST_ATTR_DMASK]);
++    memcpy(&snat_rule->gw, nla_data(attrs[IPVS_SNAT_DEST_ATTR_GW]), sizeof(snat_rule->gw));
++    memcpy(&snat_rule->min_ip, nla_data(attrs[IPVS_SNAT_DEST_ATTR_MINIP]), sizeof(snat_rule->min_ip));
++    memcpy(&snat_rule->max_ip, nla_data(attrs[IPVS_SNAT_DEST_ATTR_MAXIP]), sizeof(snat_rule->max_ip));
++    snat_rule->algo= nla_get_u8(attrs[IPVS_SNAT_DEST_ATTR_ALGO]);
++    memcpy(&snat_rule->new_gw, nla_data(attrs[IPVS_SNAT_DEST_ATTR_NEWGW]), sizeof(snat_rule->new_gw));
++    snat_rule->conn_flags = nla_get_u32(attrs[IPVS_SNAT_DEST_ATTR_CONNFLAG]);
++    strncpy(snat_rule->out_dev, nla_get_string(attrs[IPVS_SNAT_DEST_ATTR_OUTDEV]), IP_VS_IFNAME_MAXLEN);
++    return 0;
++}
++
+ static int ipvs_services_parse_cb(struct nl_msg *msg, void *arg)
+ {
+ 	struct nlmsghdr *nlh = nlmsg_hdr(msg);
+@@ -885,20 +1039,29 @@ ipvs_sort_services(struct ip_vs_get_services *s, ipvs_service_cmp_t f)
+ static int ipvs_dests_parse_cb(struct nl_msg *msg, void *arg)
+ {
+ 	struct nlmsghdr *nlh = nlmsg_hdr(msg);
+-	struct nlattr *attrs[IPVS_DEST_ATTR_MAX + 1];
+-	struct nlattr *dest_attrs[IPVS_SVC_ATTR_MAX + 1];
++	//struct nlattr *attrs[IPVS_DEST_ATTR_MAX + 1];
++        //struct nlattr *dest_attrs[IPVS_SVC_ATTR_MAX + 1];
++        
++    struct nlattr *attrs[IPVS_CMD_ATTR_MAX + 1];
++	struct nlattr *dest_attrs[IPVS_DEST_ATTR_MAX + 1];
++	
+ 	struct ip_vs_get_dests **dp = (struct ip_vs_get_dests **)arg;
+ 	struct ip_vs_get_dests *d = (struct ip_vs_get_dests *)*dp;
+ 	int i = d->num_dests;
+ 
+-	if (genlmsg_parse(nlh, 0, attrs, IPVS_CMD_ATTR_MAX, ipvs_cmd_policy) != 0)
++	if (genlmsg_parse(nlh, 0, attrs, 
++			IPVS_CMD_ATTR_MAX, ipvs_cmd_policy) != 0) {
+ 		return -1;
++    }
+ 
+-	if (!attrs[IPVS_CMD_ATTR_DEST])
++	if (!attrs[IPVS_CMD_ATTR_DEST]) {
+ 		return -1;
++	}
+ 
+-	if (nla_parse_nested(dest_attrs, IPVS_DEST_ATTR_MAX, attrs[IPVS_CMD_ATTR_DEST], ipvs_dest_policy))
++	if (nla_parse_nested(dest_attrs, IPVS_DEST_ATTR_MAX, 
++			attrs[IPVS_CMD_ATTR_DEST], ipvs_dest_policy)) {
+ 		return -1;
++	}
+ 
+ 	memset(&(d->entrytable[i]), 0, sizeof(d->entrytable[i]));
+ 
+@@ -910,8 +1073,9 @@ static int ipvs_dests_parse_cb(struct nl_msg *msg, void *arg)
+ 	      dest_attrs[IPVS_DEST_ATTR_L_THRESH] &&
+ 	      dest_attrs[IPVS_DEST_ATTR_ACTIVE_CONNS] &&
+ 	      dest_attrs[IPVS_DEST_ATTR_INACT_CONNS] &&
+-	      dest_attrs[IPVS_DEST_ATTR_PERSIST_CONNS]))
++	      dest_attrs[IPVS_DEST_ATTR_PERSIST_CONNS])) {
+ 		return -1;
++	}
+ 
+ 	memcpy(&(d->entrytable[i].addr),
+ 	       nla_data(dest_attrs[IPVS_DEST_ATTR_ADDR]),
+@@ -927,11 +1091,18 @@ static int ipvs_dests_parse_cb(struct nl_msg *msg, void *arg)
+ 	d->entrytable[i].af = d->af;
+ 
+ 	if (ipvs_parse_stats(&(d->entrytable[i].stats),
+-			     dest_attrs[IPVS_DEST_ATTR_STATS]) != 0)
++			dest_attrs[IPVS_DEST_ATTR_STATS]) != 0) {
+ 		return -1;
++   	}		
+ 
+-	i++;
++    if (d->fwmark == 1 && dest_attrs[IPVS_DEST_ATTR_SNATRULE] ) {
++    	if (ipvs_parse_snat_rule(&(d->entrytable[i].snat_rule), 
++				dest_attrs[IPVS_DEST_ATTR_SNATRULE]) != 0) {
++        	return -1;
++        }
++    }
+ 
++	i++;
+ 	d->num_dests = i;
+ 	d = realloc(d, sizeof(*d) + sizeof(ipvs_dest_entry_t) * (d->num_dests + 1));
+ 	*dp = d;
+diff --git a/tools/keepalived/keepalived/libipvs-2.6/libipvs.h b/tools/keepalived/keepalived/libipvs-2.6/libipvs.h
+index 60a617f..f5f9039 100644
+--- a/tools/keepalived/keepalived/libipvs-2.6/libipvs.h
++++ b/tools/keepalived/keepalived/libipvs-2.6/libipvs.h
+@@ -38,7 +38,15 @@
+ #define OPT_PERSISTENCE_ENGINE  0x400000
+ #define OPT_LOCAL_ADDRESS	0x800000
+ #define OPT_SYNPROXY		0x1000000
+-#define NUMBER_OF_OPT		25
++#define OPT_SNAT_FROM                   0x2000000
++#define OPT_SNAT_TO                        0x4000000
++#define OPT_SNAT_GW                       0x8000000
++#define OPT_SNAT_SOURCE               0x10000000
++#define OPT_SNAT_ALGO                   0x20000000
++#define OPT_SNAT_NEWGW               0x40000000
++#define OPT_SNAT_OUTDEV               0x80000000
++
++#define NUMBER_OF_OPT		32
+ 
+ #define MINIMUM_IPVS_VERSION_MAJOR      1
+ #define MINIMUM_IPVS_VERSION_MINOR      1
+@@ -60,9 +68,9 @@
+  */
+ #define IPVS_SVC_PERSISTENT_TIMEOUT	(6*60)
+ 
+-
+ typedef struct ip_vs_service_user	ipvs_service_t;
+ typedef struct ip_vs_dest_user		ipvs_dest_t;
++typedef struct ip_vs_dest_snat_user  ipvs_snat_dest_t;
+ typedef struct ip_vs_laddr_user 	ipvs_laddr_t;
+ typedef struct ip_vs_timeout_user	ipvs_timeout_t;
+ typedef struct ip_vs_daemon_user	ipvs_daemon_t;
+@@ -113,10 +121,17 @@ extern int ipvs_update_dest(ipvs_service_t *svc, ipvs_dest_t *dest);
+ /* remove a destination server from a service */
+ extern int ipvs_del_dest(ipvs_service_t *svc, ipvs_dest_t *dest);
+ 
++/* for lvs snat dest */
++extern int ipvs_add_snat_dest(ipvs_service_t *svc, ipvs_snat_dest_t *snat_dest);
++extern int ipvs_update_snat_dest(ipvs_service_t *svc, ipvs_snat_dest_t *snat_dest);
++extern int ipvs_del_snat_dest(ipvs_service_t *svc, ipvs_snat_dest_t *snat_dest);
++
+ extern int ipvs_add_laddr(ipvs_service_t *svc, ipvs_laddr_t * laddr);
+ extern int ipvs_del_laddr(ipvs_service_t *svc, ipvs_laddr_t * laddr);
+ extern struct ip_vs_get_laddrs *ipvs_get_laddrs(ipvs_service_entry_t *svc);
+ 
++extern void ipvs_service_entry_2_user(const ipvs_service_entry_t *entry, ipvs_service_t *user);
++
+ /* set timeout */
+ extern int ipvs_set_timeout(ipvs_timeout_t *to);
+ 
+diff --git a/tools/quagga/redhat/quagga.spec b/tools/quagga/redhat/quagga.spec
+index d7f6390..b65d858 100644
+--- a/tools/quagga/redhat/quagga.spec
++++ b/tools/quagga/redhat/quagga.spec
+@@ -90,7 +90,7 @@
+ Summary: Routing daemon
+ Name:		quagga
+ Version:	0.99.20
+-Release:	20110929%{release_rev}
++Release:	20140403%{release_rev}
+ License:	GPL
+ Group: System Environment/Daemons
+ Source0:	http://www.quagga.net/snapshots/cvs/%{name}-%{version}.tar.gz
+diff --git a/tools/quagga/vtysh/extract.pl b/tools/quagga/vtysh/extract.pl
+index 9728a7f..b58e09d 100755
+--- a/tools/quagga/vtysh/extract.pl
++++ b/tools/quagga/vtysh/extract.pl
+@@ -1,4 +1,4 @@
+-#! 
++#! /usr/bin/perl
+ ##
+ ## vtysh/extract.pl.  Generated from extract.pl.in by configure.
+ ##
