@@ -18,6 +18,7 @@
 5. 目前不支持ipv6
 6. snat ip pool选择算法支持hash(sip),hash(sip,dip),hash(sip,dip,sport,dport)
 7. 兼容lvs原有功能，可以作为网关单独部署，也可以负载均衡部署在同一台机器，跟vs/nat,vs/fullnat等转发模式一起使用
+8. 请注意我们使用fwmark 1作为snat的开关，并不需要iptables配合使用
 
 ##基于lvs-v2的snat网关安装方法
 ###在alibaba 的lvs基础上打补丁
@@ -48,7 +49,7 @@
 
 ###ipvsadm配置方法
 	#下列是一个多isp的配置例子，网关和网卡用来区分链路，前提是路由要设置好
-	#添加fwmark为1的virtual service，开启snat网关服务
+	#添加fwmark为1的virtual service，开启snat网关服务，注意跟iptables没有关系
     ipvsadm -A -f 1 -s snat_sched
     
 	#添加snat规则，来源网段192.168.40.0/24，下一跳网关是1.1.2.1，
@@ -72,6 +73,7 @@
     #把内外机器的默认网关指向lvs的内网ip
     
 ###keepalived配置方法
+    #fwmark 1只是开关，跟iptables一毛钱关系都没有，请关闭iptables
     virtual_server fwmark 1 {
     	#192.168.40.0/24的按照多isp路由表走，多isp靠oif或者gw来区分
     	snat_rule {
