@@ -18,11 +18,13 @@
 ###在alibaba 的lvs基础上打补丁
 	git clone git@github.com:alibaba/LVS.git
  	cd LVS
-	git branch lvs_v2
+ 	git checkout lvs_v2
 	patch -p1 < snat-gateway-lvs-v2.patch
 
 	#如果不想打补丁直接使用我的完整代码
 	git clone https://github.com/jlijian3/LVS.git
+	cd LVS
+	git checkout lvs_v2
 
 ###编译内核
 	make -j16
@@ -69,7 +71,7 @@
 ###
 	git clone git@github.com:alibaba/LVS.git
 	cd LVS
-	git branch lvs_v2
+	git checkout lvs_v2
 	patch -p1 < iptable-lbg-CHROUTE-lvs-v2.patch
 
 	#如果不想打补丁直接使用我的完整代码
