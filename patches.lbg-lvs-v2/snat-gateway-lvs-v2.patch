@@ -5132,7 +5132,7 @@ index 2a00261..3d0feb5 100644
  #endif
 +
 diff --git a/tools/keepalived/keepalived/include/check_data.h b/tools/keepalived/keepalived/include/check_data.h
-index 27bf7b6..046fc95 100644
+index 27bf7b6..72ed077 100644
 --- a/tools/keepalived/keepalived/include/check_data.h
 +++ b/tools/keepalived/keepalived/include/check_data.h
 @@ -87,6 +87,25 @@ typedef struct _real_server {
@@ -5227,20 +5227,22 @@ index 27bf7b6..046fc95 100644
  			 (X)->nat_mask                == (Y)->nat_mask			&&\
  			 (X)->granularity_persistence == (Y)->granularity_persistence	&&\
  			 (X)->syn_proxy		      == (Y)->syn_proxy			&&\
-@@ -240,6 +294,12 @@ static inline int inaddr_equal(sa_family_t family, void *addr1, void *addr2)
+@@ -240,6 +294,14 @@ static inline int inaddr_equal(sa_family_t family, void *addr1, void *addr2)
  #define RS_ISEQ(X,Y)	(sockstorage_equal(&(X)->addr,&(Y)->addr) &&	\
  			 (X)->iweight   == (Y)->iweight)
  
 +#define SNAT_RS_ISEQ(X, Y) (addr_equal((X)->af, &(X)->saddr, &(Y)->saddr) && (X)->smask == (Y)->smask && \
 +            addr_equal((X)->af, &(X)->daddr, &(Y)->daddr) &&  (X)->dmask == (Y)->dmask && \
-+            addr_equal((X)->af, &(X)->gw, &(Y)->gw) && !strcmp((X)->out_dev, (Y)->out_dev))
-+
-+
++            addr_equal((X)->af, &(X)->gw, &(Y)->gw) && !strcmp((X)->out_dev, (Y)->out_dev) && \
++            addr_equal((X)->af, &(X)->minip, &(Y)->minip)  && \
++            addr_equal((X)->af, &(X)->maxip, &(Y)->maxip) && \
++            addr_equal((X)->af, &(X)->new_gw, &(Y)->new_gw)  && \
++            (X)->algo == (Y)->algo)
 +
  /* Global vars exported */
  extern check_conf_data *check_data;
  extern check_conf_data *old_check_data;
-@@ -261,4 +321,6 @@ extern check_conf_data *alloc_check_data(void);
+@@ -261,4 +323,6 @@ extern check_conf_data *alloc_check_data(void);
  extern void free_check_data(check_conf_data *);
  extern void dump_check_data(check_conf_data *);
  
