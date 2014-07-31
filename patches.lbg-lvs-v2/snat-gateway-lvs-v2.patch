@@ -574,7 +574,7 @@ index f6c373b..d3f8c3a 100644
  		if (sysctl_ip_vs_nat_icmp_send &&
  		    (pp->protocol == IPPROTO_TCP ||
 diff --git a/kernel/net/netfilter/ipvs/ip_vs_ctl.c b/kernel/net/netfilter/ipvs/ip_vs_ctl.c
-index 6204fb8..202415e 100644
+index 6204fb8..cdf2d17 100644
 --- a/kernel/net/netfilter/ipvs/ip_vs_ctl.c
 +++ b/kernel/net/netfilter/ipvs/ip_vs_ctl.c
 @@ -35,6 +35,7 @@
@@ -585,7 +585,15 @@ index 6204fb8..202415e 100644
  
  #include <net/net_namespace.h>
  #include <net/ip.h>
-@@ -150,6 +151,8 @@ int sysctl_ip_vs_udp_drop_entry = 1;
+@@ -143,13 +144,15 @@ static int ip_vs_port_try_max = 60000;
+ /*
+  * sysctl for DEFENCE ATTACK
+  */
+-int sysctl_ip_vs_frag_drop_entry = 0;
++int sysctl_ip_vs_frag_drop_entry = 1;
+ int sysctl_ip_vs_tcp_drop_entry = 1;
+ int sysctl_ip_vs_udp_drop_entry = 1;
+ /* send rst when tcp session expire */
  int sysctl_ip_vs_conn_expire_tcp_rst = 1;
  /* L2 fast xmit, response only (to client) */
  int sysctl_ip_vs_fast_xmit = 1;
@@ -1773,9 +1781,22 @@ index 3cdc11e..952d4a7 100644
  	[IP_VS_TCP_S_LISTEN] = 2 * 60 * HZ,
  	[IP_VS_TCP_S_SYNACK] = 30 * HZ,
  	[IP_VS_TCP_S_LAST] = 2 * HZ,
+diff --git a/kernel/net/netfilter/ipvs/ip_vs_proto_udp.c b/kernel/net/netfilter/ipvs/ip_vs_proto_udp.c
+index 716e406..1c53912 100644
+--- a/kernel/net/netfilter/ipvs/ip_vs_proto_udp.c
++++ b/kernel/net/netfilter/ipvs/ip_vs_proto_udp.c
+@@ -394,7 +394,7 @@ udp_fnat_in_handler(struct sk_buff **skb_p,
+ 	if (skb->ip_summed == CHECKSUM_PARTIAL) {
+ 		udp_partial_csum_reset(cp->af, (skb->len - udphoff),
+ 					udph, &cp->laddr, &cp->daddr);
+-	} else if (!cp->app) {
++	} else if (!cp->app && (udph->check != 0)) {
+ 		/* Only port and addr are changed, do fast csum update */
+ 		udp_fast_csum_update(cp->af, udph, &cp->vaddr, &cp->daddr,
+ 				     cp->vport, cp->dport);
 diff --git a/kernel/net/netfilter/ipvs/ip_vs_snat_sched.c b/kernel/net/netfilter/ipvs/ip_vs_snat_sched.c
 new file mode 100644
-index 0000000..c775456
+index 0000000..3aaca1e
 --- /dev/null
 +++ b/kernel/net/netfilter/ipvs/ip_vs_snat_sched.c
 @@ -0,0 +1,492 @@
@@ -1888,13 +1909,13 @@ index 0000000..c775456
 +
 +    if (out_dev && rule->out_dev_mask[0] &&
 +        !ip_vs_ifname_cmp(out_dev, rule->out_dev, rule->out_dev_mask)){
-+      IP_VS_DBG(7, "SNAT rule_find dev addr:%pI4 rt_gw:%pI4;new_gw:%pI4\n", 
++      IP_VS_DBG(7, "SNAT rule_find gw:%pI4 rt_gw:%pI4;new_gw:%pI4\n", 
 +                &dest->addr.ip, &rt_gateway, &rule->new_gateway.ip);
 +      return dest;
 +    }
 +    
 +    if (rt_gateway == dest->addr.ip || dest->addr.ip == 0){
-+      IP_VS_DBG(7, "SNAT rule_find gw addr:%pI4 rt_gw:%pI4;new_gw:%pI4\n",
++      IP_VS_DBG(7, "SNAT rule_find gw:%pI4 rt_gw:%pI4;new_gw:%pI4\n",
 +                &dest->addr.ip, &rt_gateway, &rule->new_gateway.ip);
 +      return dest;
 +    }
@@ -2320,10 +2341,10 @@ index c5de198..d831005 100644
  		if ((tmp_skb = xchg(&cp->syn_skb, NULL)) != NULL) {
  			kfree_skb(tmp_skb);
 diff --git a/kernel/net/netfilter/ipvs/ip_vs_xmit.c b/kernel/net/netfilter/ipvs/ip_vs_xmit.c
-index 7c096cc..89ae003 100644
+index 7c096cc..ffae0b0 100644
 --- a/kernel/net/netfilter/ipvs/ip_vs_xmit.c
 +++ b/kernel/net/netfilter/ipvs/ip_vs_xmit.c
-@@ -116,6 +116,70 @@ static struct rtable *__ip_vs_get_out_rt(struct ip_vs_conn *cp, u32 rtos)
+@@ -116,6 +116,72 @@ static struct rtable *__ip_vs_get_out_rt(struct ip_vs_conn *cp, u32 rtos)
  	return rt;
  }
  
@@ -2345,6 +2366,8 @@ index 7c096cc..89ae003 100644
 +		if (!(rt = (struct rtable *)
 +		      __ip_vs_dst_check(dest, rtos, 0))) {
 +      __be32 dst_ip = rule->new_gateway.ip?rule->new_gateway.ip:dest->addr.ip;
++      if (!dst_ip)
++        dst_ip = cp->vaddr.ip;
 +			struct flowi fl = {
 +				.oif = 0,
 +				.nl_u = {
@@ -2394,7 +2417,7 @@ index 7c096cc..89ae003 100644
  struct rtable *ip_vs_get_rt(union nf_inet_addr *addr, u32 rtos)
  {
  	struct rtable *rt;	/* Route to the other host */
-@@ -304,6 +368,7 @@ static void ip_vs_nat_icmp(struct sk_buff *skb, struct ip_vs_protocol *pp,
+@@ -304,6 +370,7 @@ static void ip_vs_nat_icmp(struct sk_buff *skb, struct ip_vs_protocol *pp,
  	}
  
  	if (inout) {
@@ -2402,7 +2425,7 @@ index 7c096cc..89ae003 100644
  		iph->saddr = cp->vaddr.ip;
  		ip_send_check(iph);
  		ciph->daddr = cp->vaddr.ip;
-@@ -644,6 +709,7 @@ int
+@@ -644,6 +711,7 @@ int
  ip_vs_fast_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
  						struct ip_vs_conn *cp)
  {
@@ -2410,7 +2433,7 @@ index 7c096cc..89ae003 100644
  	struct ethhdr *eth;
  
  	if (!cp->indev)
-@@ -671,12 +737,14 @@ ip_vs_fast_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
+@@ -671,12 +739,14 @@ ip_vs_fast_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
  		ip_hdr(skb)->saddr = cp->vaddr.ip;
  		ip_hdr(skb)->daddr = cp->caddr.ip;
  	} else {
@@ -2427,7 +2450,7 @@ index 7c096cc..89ae003 100644
  	}
  
  	ip_send_check(ip_hdr(skb));
-@@ -712,11 +780,12 @@ ip_vs_fast_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
+@@ -712,11 +782,12 @@ ip_vs_fast_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
  	IP_VS_DBG_RL("%s: send skb to client!\n", __func__);
  
  	/* Send the packet out */
@@ -2445,7 +2468,7 @@ index 7c096cc..89ae003 100644
  
  	IP_VS_INC_ESTATS(ip_vs_esmib, FAST_XMIT_PASS);
  	return 0;
-@@ -731,6 +800,7 @@ int
+@@ -731,6 +802,7 @@ int
  ip_vs_fast_response_xmit_v6(struct sk_buff *skb, struct ip_vs_protocol *pp,
  						struct ip_vs_conn *cp)
  {
@@ -2453,7 +2476,7 @@ index 7c096cc..89ae003 100644
  	struct ethhdr *eth;
  
  	if (!cp->indev)
-@@ -796,11 +866,12 @@ ip_vs_fast_response_xmit_v6(struct sk_buff *skb, struct ip_vs_protocol *pp,
+@@ -796,11 +868,12 @@ ip_vs_fast_response_xmit_v6(struct sk_buff *skb, struct ip_vs_protocol *pp,
  
  	IP_VS_DBG_RL("%s: send skb to client!\n", __func__);
  	/* Send the packet out */
@@ -2471,7 +2494,7 @@ index 7c096cc..89ae003 100644
  
  	IP_VS_INC_ESTATS(ip_vs_esmib, FAST_XMIT_PASS);
  	return 0;
-@@ -810,6 +881,40 @@ err:
+@@ -810,6 +883,40 @@ err:
  }
  #endif
  
@@ -2512,7 +2535,7 @@ index 7c096cc..89ae003 100644
  /* Response transmit to client
   * Used for NAT/Local.
   */
-@@ -820,6 +925,11 @@ ip_vs_normal_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
+@@ -820,6 +927,11 @@ ip_vs_normal_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
  	struct rtable *rt;
  	int mtu;
  
@@ -2524,7 +2547,7 @@ index 7c096cc..89ae003 100644
  	/* copy-on-write the packet before mangling it */
  	if (!skb_make_writable(skb, ihl))
  		goto drop;
-@@ -953,6 +1063,8 @@ ip_vs_fnat_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
+@@ -953,6 +1065,8 @@ ip_vs_fnat_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
  	int mtu;
  	struct iphdr *iph = ip_hdr(skb);
  
@@ -2533,7 +2556,7 @@ index 7c096cc..89ae003 100644
  	if(sysctl_ip_vs_fast_xmit && !ip_vs_fast_response_xmit(skb, pp, cp))
  		return NF_STOLEN;
  
-@@ -1017,6 +1129,8 @@ ip_vs_fnat_response_xmit_v6(struct sk_buff *skb, struct ip_vs_protocol *pp,
+@@ -1017,6 +1131,8 @@ ip_vs_fnat_response_xmit_v6(struct sk_buff *skb, struct ip_vs_protocol *pp,
  	struct rt6_info *rt;	/* Route to the other host */
  	int mtu;
  
@@ -2542,7 +2565,7 @@ index 7c096cc..89ae003 100644
  	if(sysctl_ip_vs_fast_xmit && !ip_vs_fast_response_xmit_v6(skb, pp, cp))
  		return NF_STOLEN;
  
-@@ -1219,6 +1333,182 @@ ip_vs_bypass_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
+@@ -1219,6 +1335,182 @@ ip_vs_bypass_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
  }
  #endif
  
@@ -2725,7 +2748,7 @@ index 7c096cc..89ae003 100644
  void
  ip_vs_save_xmit_info(struct sk_buff *skb, struct ip_vs_protocol *pp,
  					struct ip_vs_conn *cp)
-@@ -1280,6 +1570,11 @@ ip_vs_nat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
+@@ -1280,6 +1572,11 @@ ip_vs_nat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
  		IP_VS_DBG(10, "filled cport=%d\n", ntohs(*p));
  	}
  
@@ -2737,7 +2760,7 @@ index 7c096cc..89ae003 100644
  	if (!(rt = __ip_vs_get_out_rt(cp, RT_TOS(iph->tos))))
  		goto tx_error_icmp;
  
-@@ -1438,6 +1733,11 @@ ip_vs_fnat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
+@@ -1438,6 +1735,11 @@ ip_vs_fnat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
  		IP_VS_DBG(10, "filled cport=%d\n", ntohs(*p));
  	}
  
@@ -2749,7 +2772,7 @@ index 7c096cc..89ae003 100644
  	if (!(rt = __ip_vs_get_out_rt(cp, RT_TOS(iph->tos))))
  		goto tx_error_icmp;
  
-@@ -1453,8 +1753,6 @@ ip_vs_fnat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
+@@ -1453,8 +1755,6 @@ ip_vs_fnat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
  		goto tx_error;
  	}
  
@@ -2758,7 +2781,7 @@ index 7c096cc..89ae003 100644
  	/* copy-on-write the packet before mangling it */
  	if (!skb_make_writable(skb, sizeof(struct iphdr)))
  		goto tx_error_put;
-@@ -1519,6 +1817,11 @@ ip_vs_fnat_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
+@@ -1519,6 +1819,11 @@ ip_vs_fnat_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
  		IP_VS_DBG(10, "filled cport=%d\n", ntohs(*p));
  	}
  
@@ -2770,7 +2793,7 @@ index 7c096cc..89ae003 100644
  	rt = __ip_vs_get_out_rt_v6(cp);
  	if (!rt)
  		goto tx_error_icmp;
-@@ -1534,8 +1837,6 @@ ip_vs_fnat_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
+@@ -1534,8 +1839,6 @@ ip_vs_fnat_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
  		goto tx_error;
  	}
  
@@ -2779,7 +2802,7 @@ index 7c096cc..89ae003 100644
  	/* copy-on-write the packet before mangling it */
  	if (!skb_make_writable(skb, sizeof(struct ipv6hdr)))
  		goto tx_error_put;
-@@ -2086,3 +2387,89 @@ ip_vs_icmp_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
+@@ -2086,3 +2389,89 @@ ip_vs_icmp_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
  	goto tx_error;
  }
  #endif
