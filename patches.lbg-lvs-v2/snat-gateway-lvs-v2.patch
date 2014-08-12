@@ -28,7 +28,7 @@ index 5eb4948..9a3b2fc 100644
  #
  # IPVS application helper
 diff --git a/kernel/include/linux/ip_vs.h b/kernel/include/linux/ip_vs.h
-index 17f51e7..6b70044 100644
+index 17f51e7..eaa1fcb 100644
 --- a/kernel/include/linux/ip_vs.h
 +++ b/kernel/include/linux/ip_vs.h
 @@ -8,7 +8,7 @@
@@ -175,7 +175,7 @@ index 17f51e7..6b70044 100644
  #endif				/* _IP_VS_H */
 +
 diff --git a/kernel/include/net/ip_vs.h b/kernel/include/net/ip_vs.h
-index b11d9a7..e8cd6a8 100644
+index b11d9a7..715de8a 100644
 --- a/kernel/include/net/ip_vs.h
 +++ b/kernel/include/net/ip_vs.h
 @@ -426,6 +426,9 @@ struct ip_vs_conn {
@@ -207,10 +207,10 @@ index b11d9a7..e8cd6a8 100644
 +};
 +
  struct ip_vs_laddr_user_kern {
- 	union nf_inet_addr addr; /* ip address */
+ 	union nf_inet_addr addr;	/* ip address */
  };
 @@ -545,6 +562,33 @@ struct ip_vs_dest {
- 	__u32 vfwmark; /* firewall mark of service */
+ 	__u32 vfwmark;		/* firewall mark of service */
  };
  
 +struct ip_vs_dest_snat {
@@ -331,7 +331,7 @@ index f7493c5..7c0a312 100644
  # IPVS application helpers
  obj-$(CONFIG_IP_VS_FTP) += ip_vs_ftp.o
 diff --git a/kernel/net/netfilter/ipvs/ip_vs_conn.c b/kernel/net/netfilter/ipvs/ip_vs_conn.c
-index b5370ca..fdb1d7d 100644
+index b5370ca..fd3738f 100644
 --- a/kernel/net/netfilter/ipvs/ip_vs_conn.c
 +++ b/kernel/net/netfilter/ipvs/ip_vs_conn.c
 @@ -429,6 +429,9 @@ static inline void ip_vs_bind_xmit(struct ip_vs_conn *cp)
@@ -485,7 +485,7 @@ index b5370ca..fdb1d7d 100644
  		return;
  	}
 diff --git a/kernel/net/netfilter/ipvs/ip_vs_core.c b/kernel/net/netfilter/ipvs/ip_vs_core.c
-index f6c373b..d3f8c3a 100644
+index f6c373b..63779c7 100644
 --- a/kernel/net/netfilter/ipvs/ip_vs_core.c
 +++ b/kernel/net/netfilter/ipvs/ip_vs_core.c
 @@ -346,6 +346,15 @@ struct ip_vs_conn *ip_vs_schedule(struct ip_vs_service *svc,
@@ -574,7 +574,7 @@ index f6c373b..d3f8c3a 100644
  		if (sysctl_ip_vs_nat_icmp_send &&
  		    (pp->protocol == IPPROTO_TCP ||
 diff --git a/kernel/net/netfilter/ipvs/ip_vs_ctl.c b/kernel/net/netfilter/ipvs/ip_vs_ctl.c
-index 6204fb8..cdf2d17 100644
+index 6204fb8..d925074 100644
 --- a/kernel/net/netfilter/ipvs/ip_vs_ctl.c
 +++ b/kernel/net/netfilter/ipvs/ip_vs_ctl.c
 @@ -35,6 +35,7 @@
@@ -1144,8 +1144,8 @@ index 6204fb8..cdf2d17 100644
  	[IPVS_DEST_ATTR_PERSIST_CONNS] = {.type = NLA_U32},
  	[IPVS_DEST_ATTR_STATS] = {.type = NLA_NESTED},
 +	[IPVS_DEST_ATTR_SNATRULE] = {.type = NLA_NESTED},
- };
- 
++};
++
 +/* Policy used for attributes in nested attribute IPVS_CMD_ATTR_SNAT_DEAST */
 +static const struct nla_policy ip_vs_snat_dest_policy[IPVS_SNAT_DEST_ATTR_MAX + 1] = {
 +	[IPVS_SNAT_DEST_ATTR_FADDR] = {.type = NLA_BINARY,
@@ -1166,8 +1166,8 @@ index 6204fb8..cdf2d17 100644
 +	[IPVS_SNAT_DEST_ATTR_CONNFLAG] = {.type = NLA_U32},
 +	[IPVS_SNAT_DEST_ATTR_OUTDEV] = {.type = NLA_STRING,
 +					.len = IP_VS_IFNAME_MAXLEN},
-+};
-+
+ };
+ 
 +
  static const struct nla_policy ip_vs_laddr_policy[IPVS_LADDR_ATTR_MAX + 1] = {
  	[IPVS_LADDR_ATTR_ADDR] = {.type = NLA_BINARY,
@@ -1517,7 +1517,7 @@ index c40552e..d29dd75 100644
  	return 0;
 diff --git a/kernel/net/netfilter/ipvs/ip_vs_proto_icmp.c b/kernel/net/netfilter/ipvs/ip_vs_proto_icmp.c
 new file mode 100644
-index 0000000..99f41be
+index 0000000..8c7fd6a
 --- /dev/null
 +++ b/kernel/net/netfilter/ipvs/ip_vs_proto_icmp.c
 @@ -0,0 +1,210 @@
@@ -1732,7 +1732,7 @@ index 0000000..99f41be
 +};
 +
 diff --git a/kernel/net/netfilter/ipvs/ip_vs_proto_tcp.c b/kernel/net/netfilter/ipvs/ip_vs_proto_tcp.c
-index 3cdc11e..952d4a7 100644
+index 3cdc11e..6a02211 100644
 --- a/kernel/net/netfilter/ipvs/ip_vs_proto_tcp.c
 +++ b/kernel/net/netfilter/ipvs/ip_vs_proto_tcp.c
 @@ -712,8 +712,16 @@ static struct sk_buff *tcp_opt_add_toa(struct ip_vs_conn *cp,
@@ -1796,7 +1796,7 @@ index 716e406..1c53912 100644
  				     cp->vport, cp->dport);
 diff --git a/kernel/net/netfilter/ipvs/ip_vs_snat_sched.c b/kernel/net/netfilter/ipvs/ip_vs_snat_sched.c
 new file mode 100644
-index 0000000..3aaca1e
+index 0000000..dfad866
 --- /dev/null
 +++ b/kernel/net/netfilter/ipvs/ip_vs_snat_sched.c
 @@ -0,0 +1,492 @@
@@ -2293,7 +2293,7 @@ index 0000000..3aaca1e
 +module_exit(ip_vs_snat_cleanup);
 +MODULE_LICENSE("GPL");
 diff --git a/kernel/net/netfilter/ipvs/ip_vs_synproxy.c b/kernel/net/netfilter/ipvs/ip_vs_synproxy.c
-index c5de198..d831005 100644
+index c5de198..21171b6 100644
 --- a/kernel/net/netfilter/ipvs/ip_vs_synproxy.c
 +++ b/kernel/net/netfilter/ipvs/ip_vs_synproxy.c
 @@ -755,6 +755,34 @@ void ip_vs_synproxy_dnat_handler(struct tcphdr *tcph, struct ip_vs_seq *sp_seq)
@@ -2335,16 +2335,16 @@ index c5de198..d831005 100644
  				     ntohs(th->dest));
  		}
  
-+	ip_vs_synproxy_save_fast_xmit_info(skb, cp); 
++		ip_vs_synproxy_save_fast_xmit_info(skb, cp); 
 +
  		/* First: free stored syn skb */
  		if ((tmp_skb = xchg(&cp->syn_skb, NULL)) != NULL) {
  			kfree_skb(tmp_skb);
 diff --git a/kernel/net/netfilter/ipvs/ip_vs_xmit.c b/kernel/net/netfilter/ipvs/ip_vs_xmit.c
-index 7c096cc..ffae0b0 100644
+index 7c096cc..9a4658a 100644
 --- a/kernel/net/netfilter/ipvs/ip_vs_xmit.c
 +++ b/kernel/net/netfilter/ipvs/ip_vs_xmit.c
-@@ -116,6 +116,72 @@ static struct rtable *__ip_vs_get_out_rt(struct ip_vs_conn *cp, u32 rtos)
+@@ -116,6 +116,74 @@ static struct rtable *__ip_vs_get_out_rt(struct ip_vs_conn *cp, u32 rtos)
  	return rt;
  }
  
@@ -2357,17 +2357,19 @@ index 7c096cc..ffae0b0 100644
 +	struct ip_vs_dest_snat *rule = (struct ip_vs_dest_snat *)cp->dest;
 +
 +	if (dest) {
++		__be32 dst_ip = rule->new_gateway.ip?rule->new_gateway.ip:dest->addr.ip;
++
 +		if (old_rt &&
 +		    (old_rt->rt_gateway == rule->new_gateway.ip ||
 +		    rule->new_gateway.ip == 0))
 +			return old_rt;
 +
++		if (!dst_ip)
++			dst_ip = cp->vaddr.ip;
++
 +		spin_lock(&dest->dst_lock);
 +		if (!(rt = (struct rtable *)
 +		      __ip_vs_dst_check(dest, rtos, 0))) {
-+			__be32 dst_ip = rule->new_gateway.ip?rule->new_gateway.ip:dest->addr.ip;
-+			if (!dst_ip)
-+				dst_ip = cp->vaddr.ip;
 +			struct flowi fl = {
 +				.oif = 0,
 +				.nl_u = {
@@ -2417,7 +2419,7 @@ index 7c096cc..ffae0b0 100644
  struct rtable *ip_vs_get_rt(union nf_inet_addr *addr, u32 rtos)
  {
  	struct rtable *rt;	/* Route to the other host */
-@@ -304,6 +370,7 @@ static void ip_vs_nat_icmp(struct sk_buff *skb, struct ip_vs_protocol *pp,
+@@ -304,6 +372,7 @@ static void ip_vs_nat_icmp(struct sk_buff *skb, struct ip_vs_protocol *pp,
  	}
  
  	if (inout) {
@@ -2425,7 +2427,7 @@ index 7c096cc..ffae0b0 100644
  		iph->saddr = cp->vaddr.ip;
  		ip_send_check(iph);
  		ciph->daddr = cp->vaddr.ip;
-@@ -644,6 +711,7 @@ int
+@@ -644,6 +713,7 @@ int
  ip_vs_fast_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
  						struct ip_vs_conn *cp)
  {
@@ -2433,7 +2435,7 @@ index 7c096cc..ffae0b0 100644
  	struct ethhdr *eth;
  
  	if (!cp->indev)
-@@ -671,12 +739,14 @@ ip_vs_fast_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
+@@ -671,12 +741,14 @@ ip_vs_fast_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
  		ip_hdr(skb)->saddr = cp->vaddr.ip;
  		ip_hdr(skb)->daddr = cp->caddr.ip;
  	} else {
@@ -2450,7 +2452,7 @@ index 7c096cc..ffae0b0 100644
  	}
  
  	ip_send_check(ip_hdr(skb));
-@@ -712,11 +782,12 @@ ip_vs_fast_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
+@@ -712,11 +784,12 @@ ip_vs_fast_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
  	IP_VS_DBG_RL("%s: send skb to client!\n", __func__);
  
  	/* Send the packet out */
@@ -2468,7 +2470,7 @@ index 7c096cc..ffae0b0 100644
  
  	IP_VS_INC_ESTATS(ip_vs_esmib, FAST_XMIT_PASS);
  	return 0;
-@@ -731,6 +802,7 @@ int
+@@ -731,6 +804,7 @@ int
  ip_vs_fast_response_xmit_v6(struct sk_buff *skb, struct ip_vs_protocol *pp,
  						struct ip_vs_conn *cp)
  {
@@ -2476,7 +2478,7 @@ index 7c096cc..ffae0b0 100644
  	struct ethhdr *eth;
  
  	if (!cp->indev)
-@@ -796,11 +868,12 @@ ip_vs_fast_response_xmit_v6(struct sk_buff *skb, struct ip_vs_protocol *pp,
+@@ -796,11 +870,12 @@ ip_vs_fast_response_xmit_v6(struct sk_buff *skb, struct ip_vs_protocol *pp,
  
  	IP_VS_DBG_RL("%s: send skb to client!\n", __func__);
  	/* Send the packet out */
@@ -2494,7 +2496,7 @@ index 7c096cc..ffae0b0 100644
  
  	IP_VS_INC_ESTATS(ip_vs_esmib, FAST_XMIT_PASS);
  	return 0;
-@@ -810,6 +883,40 @@ err:
+@@ -810,6 +885,40 @@ err:
  }
  #endif
  
@@ -2535,7 +2537,7 @@ index 7c096cc..ffae0b0 100644
  /* Response transmit to client
   * Used for NAT/Local.
   */
-@@ -820,6 +927,11 @@ ip_vs_normal_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
+@@ -820,6 +929,11 @@ ip_vs_normal_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
  	struct rtable *rt;
  	int mtu;
  
@@ -2547,7 +2549,7 @@ index 7c096cc..ffae0b0 100644
  	/* copy-on-write the packet before mangling it */
  	if (!skb_make_writable(skb, ihl))
  		goto drop;
-@@ -953,6 +1065,8 @@ ip_vs_fnat_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
+@@ -953,6 +1067,8 @@ ip_vs_fnat_response_xmit(struct sk_buff *skb, struct ip_vs_protocol *pp,
  	int mtu;
  	struct iphdr *iph = ip_hdr(skb);
  
@@ -2556,7 +2558,7 @@ index 7c096cc..ffae0b0 100644
  	if(sysctl_ip_vs_fast_xmit && !ip_vs_fast_response_xmit(skb, pp, cp))
  		return NF_STOLEN;
  
-@@ -1017,6 +1131,8 @@ ip_vs_fnat_response_xmit_v6(struct sk_buff *skb, struct ip_vs_protocol *pp,
+@@ -1017,6 +1133,8 @@ ip_vs_fnat_response_xmit_v6(struct sk_buff *skb, struct ip_vs_protocol *pp,
  	struct rt6_info *rt;	/* Route to the other host */
  	int mtu;
  
@@ -2565,7 +2567,7 @@ index 7c096cc..ffae0b0 100644
  	if(sysctl_ip_vs_fast_xmit && !ip_vs_fast_response_xmit_v6(skb, pp, cp))
  		return NF_STOLEN;
  
-@@ -1219,6 +1335,182 @@ ip_vs_bypass_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
+@@ -1219,6 +1337,182 @@ ip_vs_bypass_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
  }
  #endif
  
@@ -2748,7 +2750,7 @@ index 7c096cc..ffae0b0 100644
  void
  ip_vs_save_xmit_info(struct sk_buff *skb, struct ip_vs_protocol *pp,
  					struct ip_vs_conn *cp)
-@@ -1280,6 +1572,11 @@ ip_vs_nat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
+@@ -1280,6 +1574,11 @@ ip_vs_nat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
  		IP_VS_DBG(10, "filled cport=%d\n", ntohs(*p));
  	}
  
@@ -2760,7 +2762,7 @@ index 7c096cc..ffae0b0 100644
  	if (!(rt = __ip_vs_get_out_rt(cp, RT_TOS(iph->tos))))
  		goto tx_error_icmp;
  
-@@ -1438,6 +1735,11 @@ ip_vs_fnat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
+@@ -1438,6 +1737,11 @@ ip_vs_fnat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
  		IP_VS_DBG(10, "filled cport=%d\n", ntohs(*p));
  	}
  
@@ -2772,7 +2774,7 @@ index 7c096cc..ffae0b0 100644
  	if (!(rt = __ip_vs_get_out_rt(cp, RT_TOS(iph->tos))))
  		goto tx_error_icmp;
  
-@@ -1453,8 +1755,6 @@ ip_vs_fnat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
+@@ -1453,8 +1757,6 @@ ip_vs_fnat_xmit(struct sk_buff *skb, struct ip_vs_conn *cp,
  		goto tx_error;
  	}
  
@@ -2781,7 +2783,7 @@ index 7c096cc..ffae0b0 100644
  	/* copy-on-write the packet before mangling it */
  	if (!skb_make_writable(skb, sizeof(struct iphdr)))
  		goto tx_error_put;
-@@ -1519,6 +1819,11 @@ ip_vs_fnat_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
+@@ -1519,6 +1821,11 @@ ip_vs_fnat_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
  		IP_VS_DBG(10, "filled cport=%d\n", ntohs(*p));
  	}
  
@@ -2793,7 +2795,7 @@ index 7c096cc..ffae0b0 100644
  	rt = __ip_vs_get_out_rt_v6(cp);
  	if (!rt)
  		goto tx_error_icmp;
-@@ -1534,8 +1839,6 @@ ip_vs_fnat_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
+@@ -1534,8 +1841,6 @@ ip_vs_fnat_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
  		goto tx_error;
  	}
  
@@ -2802,7 +2804,7 @@ index 7c096cc..ffae0b0 100644
  	/* copy-on-write the packet before mangling it */
  	if (!skb_make_writable(skb, sizeof(struct ipv6hdr)))
  		goto tx_error_put;
-@@ -2086,3 +2389,89 @@ ip_vs_icmp_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
+@@ -2086,3 +2391,89 @@ ip_vs_icmp_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
  	goto tx_error;
  }
  #endif
@@ -2892,8 +2894,32 @@ index 7c096cc..ffae0b0 100644
 +	ip_rt_put(rt);
 +	goto tx_error;
 +}
+diff --git a/kernel/patches b/kernel/patches
+deleted file mode 120000
+index 0868bf3..0000000
+--- a/kernel/patches
++++ /dev/null
+@@ -1 +0,0 @@
+-/home/pukong/git/lvs-kernel
+\ No newline at end of file
+diff --git a/kernel/refresh_patch.sh b/kernel/refresh_patch.sh
+deleted file mode 120000
+index 29401d1..0000000
+--- a/kernel/refresh_patch.sh
++++ /dev/null
+@@ -1 +0,0 @@
+-/home/pukong/git/lvs-kernel/scripts/refresh_patch.sh
+\ No newline at end of file
+diff --git a/kernel/run_oldconfig.py b/kernel/run_oldconfig.py
+deleted file mode 120000
+index c3db9e6..0000000
+--- a/kernel/run_oldconfig.py
++++ /dev/null
+@@ -1 +0,0 @@
+-/home/pukong/git/lvs-kernel/scripts/run_oldconfig.py
+\ No newline at end of file
 diff --git a/tools/ipvsadm/ipvsadm.c b/tools/ipvsadm/ipvsadm.c
-index 6d694d6..ec32a1b 100644
+index 6d694d6..38118e1 100644
 --- a/tools/ipvsadm/ipvsadm.c
 +++ b/tools/ipvsadm/ipvsadm.c
 @@ -141,7 +141,12 @@
@@ -3846,7 +3872,7 @@ index 6d694d6..ec32a1b 100644
  static int str_is_digit(const char *str)
  {
 diff --git a/tools/keepalived/keepalived/check/check_api.c b/tools/keepalived/keepalived/check/check_api.c
-index a208690..d2ee17a 100644
+index a208690..dec7883 100644
 --- a/tools/keepalived/keepalived/check/check_api.c
 +++ b/tools/keepalived/keepalived/check/check_api.c
 @@ -217,3 +217,105 @@ install_checkers_keyword(void)
@@ -3956,7 +3982,7 @@ index a208690..d2ee17a 100644
 +}
 +
 diff --git a/tools/keepalived/keepalived/check/check_daemon.c b/tools/keepalived/keepalived/check/check_daemon.c
-index 7587a7d..88dbb81 100644
+index 7587a7d..ef0da1c 100644
 --- a/tools/keepalived/keepalived/check/check_daemon.c
 +++ b/tools/keepalived/keepalived/check/check_daemon.c
 @@ -107,10 +107,10 @@ start_check(void)
@@ -3981,7 +4007,7 @@ index 7587a7d..88dbb81 100644
  	signal_reset();
  	signal_handler_destroy();
 diff --git a/tools/keepalived/keepalived/check/check_data.c b/tools/keepalived/keepalived/check/check_data.c
-index 80c1828..8fe0b30 100644
+index 80c1828..c3b9ffa 100644
 --- a/tools/keepalived/keepalived/check/check_data.c
 +++ b/tools/keepalived/keepalived/check/check_data.c
 @@ -332,10 +332,23 @@ alloc_vs(char *ip, char *port)
@@ -4072,7 +4098,7 @@ index 80c1828..8fe0b30 100644
  check_conf_data *
  alloc_check_data(void)
 diff --git a/tools/keepalived/keepalived/check/check_parser.c b/tools/keepalived/keepalived/check/check_parser.c
-index e491cc0..7afe35a 100644
+index e491cc0..b4ebcb3 100644
 --- a/tools/keepalived/keepalived/check/check_parser.c
 +++ b/tools/keepalived/keepalived/check/check_parser.c
 @@ -33,6 +33,106 @@
@@ -4182,11 +4208,11 @@ index e491cc0..7afe35a 100644
  /* SSL handlers */
  static void
  ssl_handler(vector strvec)
-@@ -82,9 +182,19 @@ vs_handler(vector strvec)
- static void
+@@ -83,8 +183,18 @@ static void
  delay_handler(vector strvec)
  {
-+	virtual_server *vs = LIST_TAIL_DATA(check_data->vs);
+ 	virtual_server *vs = LIST_TAIL_DATA(check_data->vs);
+-	vs->delay_loop = atoi(VECTOR_SLOT(strvec, 1)) * TIMER_HZ;
 +	vs->delay_loop = atoi(VECTOR_SLOT(strvec, 1)) * TIMER_HZ;;
 +}
 +
@@ -4194,8 +4220,7 @@ index e491cc0..7afe35a 100644
 +static void
 +abspriority_handler(vector strvec)
 +{
- 	virtual_server *vs = LIST_TAIL_DATA(check_data->vs);
--	vs->delay_loop = atoi(VECTOR_SLOT(strvec, 1)) * TIMER_HZ;
++	virtual_server *vs = LIST_TAIL_DATA(check_data->vs);
 +	log_message(LOG_INFO, "abs_priority mode open");
 +	vs->abs_priority = 1;
  }
@@ -4421,7 +4446,7 @@ index e491cc0..7afe35a 100644
  	install_keyword("sorry_server", &ssvr_handler);
  	install_keyword("real_server", &rs_handler);
 diff --git a/tools/keepalived/keepalived/check/ipvswrapper.c b/tools/keepalived/keepalived/check/ipvswrapper.c
-index f9e4154..5ad81df 100644
+index f9e4154..15f9339 100644
 --- a/tools/keepalived/keepalived/check/ipvswrapper.c
 +++ b/tools/keepalived/keepalived/check/ipvswrapper.c
 @@ -344,6 +344,7 @@ static ipvs_service_t *srule;
@@ -4575,7 +4600,7 @@ index f9e4154..5ad81df 100644
  int
  ipvs_cmd(int cmd, list vs_group, virtual_server * vs, real_server * rs)
 diff --git a/tools/keepalived/keepalived/check/ipwrapper.c b/tools/keepalived/keepalived/check/ipwrapper.c
-index f998654..301da15 100644
+index f998654..fb3a8de 100644
 --- a/tools/keepalived/keepalived/check/ipwrapper.c
 +++ b/tools/keepalived/keepalived/check/ipwrapper.c
 @@ -27,11 +27,10 @@
@@ -4597,7 +4622,7 @@ index f998654..301da15 100644
  
 +	if (IS_SNAT_SVC(vs)) {
 +	    snat_rule *sr;
- 	for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
++	for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
 +		sr = ELEMENT_DATA(e);
 +		if (ISALIVE(sr)) {
 +			if (!ipvs_snat_cmd(LVS_CMD_DEL_SNATDEST, vs, sr)) {
@@ -4609,7 +4634,7 @@ index f998654..301da15 100644
 +		return 1;
 +	}
 +	
-+	for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
+ 	for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
  		rs = ELEMENT_DATA(e);
  		if (ISALIVE(rs)) {
  			if (!ipvs_cmd(LVS_CMD_DEL_DEST, vs_group, vs, rs))
@@ -5096,7 +5121,7 @@ index f998654..301da15 100644
  }
 +
 diff --git a/tools/keepalived/keepalived/etc/init.d/keepalived.init b/tools/keepalived/keepalived/etc/init.d/keepalived.init
-index 0724c4c..b2d4e59 100755
+index 0724c4c..7a399af 100755
 --- a/tools/keepalived/keepalived/etc/init.d/keepalived.init
 +++ b/tools/keepalived/keepalived/etc/init.d/keepalived.init
 @@ -17,7 +17,8 @@
@@ -5155,7 +5180,7 @@ index 2a00261..3d0feb5 100644
  #endif
 +
 diff --git a/tools/keepalived/keepalived/include/check_data.h b/tools/keepalived/keepalived/include/check_data.h
-index 27bf7b6..72ed077 100644
+index 27bf7b6..5f22b2d 100644
 --- a/tools/keepalived/keepalived/include/check_data.h
 +++ b/tools/keepalived/keepalived/include/check_data.h
 @@ -87,6 +87,25 @@ typedef struct _real_server {
@@ -5284,7 +5309,7 @@ index fadb574..ab2cddb 100644
 +
  #endif
 diff --git a/tools/keepalived/keepalived/include/ipwrapper.h b/tools/keepalived/keepalived/include/ipwrapper.h
-index 7899cbf..eb04a1b 100644
+index 7899cbf..89ffdb7 100644
 --- a/tools/keepalived/keepalived/include/ipwrapper.h
 +++ b/tools/keepalived/keepalived/include/ipwrapper.h
 @@ -49,6 +49,8 @@
@@ -5304,7 +5329,7 @@ index 7899cbf..eb04a1b 100644
 +
  #endif
 diff --git a/tools/keepalived/keepalived/libipvs-2.6/ip_vs.h b/tools/keepalived/keepalived/libipvs-2.6/ip_vs.h
-index f15bfd4..79be2c0 100644
+index f15bfd4..a195b57 100644
 --- a/tools/keepalived/keepalived/libipvs-2.6/ip_vs.h
 +++ b/tools/keepalived/keepalived/libipvs-2.6/ip_vs.h
 @@ -17,7 +17,7 @@
@@ -5476,7 +5501,7 @@ index f15bfd4..79be2c0 100644
  
  /* End of Generic Netlink interface definitions */
 diff --git a/tools/keepalived/keepalived/libipvs-2.6/ip_vs_nl_policy.c b/tools/keepalived/keepalived/libipvs-2.6/ip_vs_nl_policy.c
-index 045bcdc..5a36fec 100644
+index 045bcdc..8964392 100644
 --- a/tools/keepalived/keepalived/libipvs-2.6/ip_vs_nl_policy.c
 +++ b/tools/keepalived/keepalived/libipvs-2.6/ip_vs_nl_policy.c
 @@ -10,6 +10,7 @@ struct nla_policy ipvs_cmd_policy[IPVS_CMD_ATTR_MAX + 1] = {
@@ -5511,7 +5536,7 @@ index 045bcdc..5a36fec 100644
  
  struct nla_policy ipvs_laddr_policy[IPVS_LADDR_ATTR_MAX + 1] = {
 diff --git a/tools/keepalived/keepalived/libipvs-2.6/libipvs.c b/tools/keepalived/keepalived/libipvs-2.6/libipvs.c
-index 8170d49..fc14d0a 100644
+index 8170d49..d37cb47 100644
 --- a/tools/keepalived/keepalived/libipvs-2.6/libipvs.c
 +++ b/tools/keepalived/keepalived/libipvs-2.6/libipvs.c
 @@ -80,19 +80,20 @@ static int ipvs_nl_noop_cb(struct nl_msg *msg, void *arg)
@@ -5818,7 +5843,7 @@ index 8170d49..fc14d0a 100644
  	d = realloc(d, sizeof(*d) + sizeof(ipvs_dest_entry_t) * (d->num_dests + 1));
  	*dp = d;
 diff --git a/tools/keepalived/keepalived/libipvs-2.6/libipvs.h b/tools/keepalived/keepalived/libipvs-2.6/libipvs.h
-index 60a617f..f5f9039 100644
+index 60a617f..fc2a622 100644
 --- a/tools/keepalived/keepalived/libipvs-2.6/libipvs.h
 +++ b/tools/keepalived/keepalived/libipvs-2.6/libipvs.h
 @@ -38,7 +38,15 @@
