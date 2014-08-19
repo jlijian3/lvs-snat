@@ -1504,14 +1504,16 @@ index 6204fb8..d925074 100644
  }
 +
 diff --git a/kernel/net/netfilter/ipvs/ip_vs_proto.c b/kernel/net/netfilter/ipvs/ip_vs_proto.c
-index c40552e..d29dd75 100644
+index c40552e..975b972 100644
 --- a/kernel/net/netfilter/ipvs/ip_vs_proto.c
 +++ b/kernel/net/netfilter/ipvs/ip_vs_proto.c
-@@ -247,6 +247,7 @@ int __init ip_vs_protocol_init(void)
+@@ -247,6 +247,9 @@ int __init ip_vs_protocol_init(void)
  #ifdef CONFIG_IP_VS_PROTO_ESP
  	REGISTER_PROTOCOL(&ip_vs_protocol_esp);
  #endif
++#ifdef CONFIG_IP_VS_PROTO_ICMP
 +	REGISTER_PROTOCOL(&ip_vs_protocol_icmp);
++#endif
  	pr_info("Registered protocols (%s)\n", &protocols[2]);
  
  	return 0;
