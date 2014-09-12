@@ -2405,8 +2405,8 @@ index 7c096cc..9a4658a 100644
 +					   .tos = rtos,}},
 +		};
 +
-+	if (old_rt)
-+		return old_rt;
++		if (old_rt)
++			return old_rt;
 +
 +		if (ip_route_output_key(&init_net, &rt, &fl)) {
 +			IP_VS_DBG_RL("ip_route_output error, dest: %pI4\n",
@@ -2896,30 +2896,6 @@ index 7c096cc..9a4658a 100644
 +	ip_rt_put(rt);
 +	goto tx_error;
 +}
-diff --git a/kernel/patches b/kernel/patches
-deleted file mode 120000
-index 0868bf3..0000000
---- a/kernel/patches
-+++ /dev/null
-@@ -1 +0,0 @@
--/home/pukong/git/lvs-kernel
-\ No newline at end of file
-diff --git a/kernel/refresh_patch.sh b/kernel/refresh_patch.sh
-deleted file mode 120000
-index 29401d1..0000000
---- a/kernel/refresh_patch.sh
-+++ /dev/null
-@@ -1 +0,0 @@
--/home/pukong/git/lvs-kernel/scripts/refresh_patch.sh
-\ No newline at end of file
-diff --git a/kernel/run_oldconfig.py b/kernel/run_oldconfig.py
-deleted file mode 120000
-index c3db9e6..0000000
---- a/kernel/run_oldconfig.py
-+++ /dev/null
-@@ -1 +0,0 @@
--/home/pukong/git/lvs-kernel/scripts/run_oldconfig.py
-\ No newline at end of file
 diff --git a/tools/ipvsadm/ipvsadm.c b/tools/ipvsadm/ipvsadm.c
 index 6d694d6..38118e1 100644
 --- a/tools/ipvsadm/ipvsadm.c
@@ -5894,26 +5870,3 @@ index 60a617f..fc2a622 100644
  /* set timeout */
  extern int ipvs_set_timeout(ipvs_timeout_t *to);
  
-diff --git a/tools/quagga/redhat/quagga.spec b/tools/quagga/redhat/quagga.spec
-index d7f6390..b65d858 100644
---- a/tools/quagga/redhat/quagga.spec
-+++ b/tools/quagga/redhat/quagga.spec
-@@ -90,7 +90,7 @@
- Summary: Routing daemon
- Name:		quagga
- Version:	0.99.20
--Release:	20110929%{release_rev}
-+Release:	20140403%{release_rev}
- License:	GPL
- Group: System Environment/Daemons
- Source0:	http://www.quagga.net/snapshots/cvs/%{name}-%{version}.tar.gz
-diff --git a/tools/quagga/vtysh/extract.pl b/tools/quagga/vtysh/extract.pl
-index 9728a7f..b58e09d 100755
---- a/tools/quagga/vtysh/extract.pl
-+++ b/tools/quagga/vtysh/extract.pl
-@@ -1,4 +1,4 @@
--#! 
-+#! /usr/bin/perl
- ##
- ## vtysh/extract.pl.  Generated from extract.pl.in by configure.
- ##
