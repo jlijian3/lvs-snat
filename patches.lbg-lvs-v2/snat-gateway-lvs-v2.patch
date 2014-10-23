@@ -1,3 +1,7 @@
+diff --git a/docs/snat_gateway_user_manual.pdf b/docs/snat_gateway_user_manual.pdf
+new file mode 100644
+index 0000000..4b96b62
+Binary files /dev/null and b/docs/snat_gateway_user_manual.pdf differ
 diff --git a/kernel/.config b/kernel/.config
 index 5eb4948..9a3b2fc 100644
 --- a/kernel/.config
@@ -310,19 +314,18 @@ index e1e4401..23b713e 100644
  
  config	IP_VS_FTP
 diff --git a/kernel/net/netfilter/ipvs/Makefile b/kernel/net/netfilter/ipvs/Makefile
-index f7493c5..7c0a312 100644
+index f7493c5..f18e543 100644
 --- a/kernel/net/netfilter/ipvs/Makefile
 +++ b/kernel/net/netfilter/ipvs/Makefile
-@@ -3,7 +3,7 @@
- #
+@@ -4,6 +4,7 @@
  
  # IPVS transport protocol load balancing support
--ip_vs_proto-objs-y :=
-+ip_vs_proto-objs-$(CONFIG_IP_VS_PROTO_ICMP) := ip_vs_proto_icmp.o
+ ip_vs_proto-objs-y :=
++ip_vs_proto-objs-$(CONFIG_IP_VS_PROTO_ICMP) += ip_vs_proto_icmp.o
  ip_vs_proto-objs-$(CONFIG_IP_VS_PROTO_TCP) += ip_vs_proto_tcp.o
  ip_vs_proto-objs-$(CONFIG_IP_VS_PROTO_UDP) += ip_vs_proto_udp.o
  ip_vs_proto-objs-$(CONFIG_IP_VS_PROTO_AH_ESP) += ip_vs_proto_ah_esp.o
-@@ -29,6 +29,7 @@ obj-$(CONFIG_IP_VS_DH) += ip_vs_dh.o
+@@ -29,6 +30,7 @@ obj-$(CONFIG_IP_VS_DH) += ip_vs_dh.o
  obj-$(CONFIG_IP_VS_SH) += ip_vs_sh.o
  obj-$(CONFIG_IP_VS_SED) += ip_vs_sed.o
  obj-$(CONFIG_IP_VS_NQ) += ip_vs_nq.o
@@ -331,7 +334,7 @@ index f7493c5..7c0a312 100644
  # IPVS application helpers
  obj-$(CONFIG_IP_VS_FTP) += ip_vs_ftp.o
 diff --git a/kernel/net/netfilter/ipvs/ip_vs_conn.c b/kernel/net/netfilter/ipvs/ip_vs_conn.c
-index b5370ca..fd3738f 100644
+index b5370ca..9448b72 100644
 --- a/kernel/net/netfilter/ipvs/ip_vs_conn.c
 +++ b/kernel/net/netfilter/ipvs/ip_vs_conn.c
 @@ -429,6 +429,9 @@ static inline void ip_vs_bind_xmit(struct ip_vs_conn *cp)
@@ -416,13 +419,14 @@ index b5370ca..fd3738f 100644
  	 * fwd methods: IP_VS_CONN_F_FULLNAT
  	 */
  	/* choose a local address by round-robin */
+-	local = ip_vs_get_laddr(svc);
 +	if (IS_SNAT_SVC(svc)) {
-+	if (ip_vs_get_laddr_snat(cp, &snat_local) == 0)
-+		local = &snat_local;
-+	else
-+		local = NULL;
++		if (ip_vs_get_laddr_snat(cp, &snat_local) == 0)
++			local = &snat_local;
++		else
++			local = NULL;
 +	} else
- 	local = ip_vs_get_laddr(svc);
++		local = ip_vs_get_laddr(svc);
 +
  	if (local != NULL) {
  		/*OUTside2INside: hashed by client address and port, virtual address and port */
@@ -1798,10 +1802,10 @@ index 716e406..1c53912 100644
  				     cp->vport, cp->dport);
 diff --git a/kernel/net/netfilter/ipvs/ip_vs_snat_sched.c b/kernel/net/netfilter/ipvs/ip_vs_snat_sched.c
 new file mode 100644
-index 0000000..dfad866
+index 0000000..e698fa0
 --- /dev/null
 +++ b/kernel/net/netfilter/ipvs/ip_vs_snat_sched.c
-@@ -0,0 +1,492 @@
+@@ -0,0 +1,493 @@
 +/*
 + * IPVS:        SNAT gateway scheduling module
 + * Authors:     lijian <jlijian3@gmail.com>
@@ -1916,7 +1920,8 @@ index 0000000..dfad866
 +				return dest;
 +		}
 +	
-+		if (rt_gateway == dest->addr.ip || dest->addr.ip == 0) {
++		if (!rule->out_dev_mask[0] &&
++		    (rt_gateway == dest->addr.ip || dest->addr.ip == 0)) {
 +			IP_VS_DBG(7, "SNAT rule_find gw:%pI4 rt_gw:%pI4;new_gw:%pI4\n",
 +				&dest->addr.ip, &rt_gateway, &rule->new_gateway.ip);
 +				return dest;
@@ -2343,7 +2348,7 @@ index c5de198..21171b6 100644
  		if ((tmp_skb = xchg(&cp->syn_skb, NULL)) != NULL) {
  			kfree_skb(tmp_skb);
 diff --git a/kernel/net/netfilter/ipvs/ip_vs_xmit.c b/kernel/net/netfilter/ipvs/ip_vs_xmit.c
-index 7c096cc..9a4658a 100644
+index 7c096cc..e18c0a1 100644
 --- a/kernel/net/netfilter/ipvs/ip_vs_xmit.c
 +++ b/kernel/net/netfilter/ipvs/ip_vs_xmit.c
 @@ -116,6 +116,74 @@ static struct rtable *__ip_vs_get_out_rt(struct ip_vs_conn *cp, u32 rtos)
@@ -2896,6 +2901,30 @@ index 7c096cc..9a4658a 100644
 +	ip_rt_put(rt);
 +	goto tx_error;
 +}
+diff --git a/kernel/patches b/kernel/patches
+deleted file mode 120000
+index 0868bf3..0000000
+--- a/kernel/patches
++++ /dev/null
+@@ -1 +0,0 @@
+-/home/pukong/git/lvs-kernel
+\ No newline at end of file
+diff --git a/kernel/refresh_patch.sh b/kernel/refresh_patch.sh
+deleted file mode 120000
+index 29401d1..0000000
+--- a/kernel/refresh_patch.sh
++++ /dev/null
+@@ -1 +0,0 @@
+-/home/pukong/git/lvs-kernel/scripts/refresh_patch.sh
+\ No newline at end of file
+diff --git a/kernel/run_oldconfig.py b/kernel/run_oldconfig.py
+deleted file mode 120000
+index c3db9e6..0000000
+--- a/kernel/run_oldconfig.py
++++ /dev/null
+@@ -1 +0,0 @@
+-/home/pukong/git/lvs-kernel/scripts/run_oldconfig.py
+\ No newline at end of file
 diff --git a/tools/ipvsadm/ipvsadm.c b/tools/ipvsadm/ipvsadm.c
 index 6d694d6..38118e1 100644
 --- a/tools/ipvsadm/ipvsadm.c
@@ -3849,6 +3878,41 @@ index 6d694d6..38118e1 100644
  
  static int str_is_digit(const char *str)
  {
+diff --git a/tools/keepalived/doc/samples/keepalived.conf.snat_gateway b/tools/keepalived/doc/samples/keepalived.conf.snat_gateway
+new file mode 100644
+index 0000000..d2a11a0
+--- /dev/null
++++ b/tools/keepalived/doc/samples/keepalived.conf.snat_gateway
+@@ -0,0 +1,29 @@
++virtual_server fwmark 1 {
++    snat_rule {
++        from 192.168.40.0/24
++        oif eth2
++        snat_ip 1.1.3.252-1.1.3.254
++        algo random
++    }
++
++    snat_rule {
++        from 10.0.0.0/8
++        oif eth1
++        snat_ip 1.1.2.252-1.1.2.254
++        algo sdh
++    }
++
++    snat_rule {
++        from 10.0.0.0/8
++        to 1.1.0.0/16
++        snat_ip 1.1.2.252-1.1.2.254
++        algo sdh
++    }
++
++    snat_rule {
++        from 10.1.0.0/16
++        new_gw 1.1.2.1
++        snat_ip 1.1.2.252-1.1.2.254
++        algo sh
++    }
++}
 diff --git a/tools/keepalived/keepalived/check/check_api.c b/tools/keepalived/keepalived/check/check_api.c
 index a208690..dec7883 100644
 --- a/tools/keepalived/keepalived/check/check_api.c
@@ -5870,3 +5934,26 @@ index 60a617f..fc2a622 100644
  /* set timeout */
  extern int ipvs_set_timeout(ipvs_timeout_t *to);
  
+diff --git a/tools/quagga/redhat/quagga.spec b/tools/quagga/redhat/quagga.spec
+index d7f6390..b65d858 100644
+--- a/tools/quagga/redhat/quagga.spec
++++ b/tools/quagga/redhat/quagga.spec
+@@ -90,7 +90,7 @@
+ Summary: Routing daemon
+ Name:		quagga
+ Version:	0.99.20
+-Release:	20110929%{release_rev}
++Release:	20140403%{release_rev}
+ License:	GPL
+ Group: System Environment/Daemons
+ Source0:	http://www.quagga.net/snapshots/cvs/%{name}-%{version}.tar.gz
+diff --git a/tools/quagga/vtysh/extract.pl b/tools/quagga/vtysh/extract.pl
+index 9728a7f..b58e09d 100755
+--- a/tools/quagga/vtysh/extract.pl
++++ b/tools/quagga/vtysh/extract.pl
+@@ -1,4 +1,4 @@
+-#! 
++#! /usr/bin/perl
+ ##
+ ## vtysh/extract.pl.  Generated from extract.pl.in by configure.
+ ##
