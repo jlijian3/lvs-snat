@@ -9,6 +9,7 @@
     
 3.  snat-gateway-lvs-v2.patch在阿里lvs-v2的fullnat基础上实现了支持多isp的snat网关
 4.  iptable-lbg-CHROUTE-lvs-v2.patch在阿里lvs-v2内核增加了iptables扩展，实现redirect nexthop功能,snat ip pool选择增加random算法
+5.  patches.lbg-lvs-v3在lvs-v3版本的基础上增加rps_framework，模拟万兆网卡flow director，以支持千兆网卡，完整的代码 https://github.com/jlijian3/LVS。
 
 #####lvs-snat网关特性
 1. 支持源ip、目的ip、出口网卡、下一跳网关匹配，规则优先级匹配按照网络地址掩码位数由大到小
