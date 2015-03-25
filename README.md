@@ -7,9 +7,8 @@
     
     b) 基于lvs-v2开发的SNAT网关，类似iptables SNAT功能，性能非常好，性能相对iptables提升80%以上
     
-3.  snat-gateway-lvs-v2.patch在阿里lvs-v2的fullnat基础上实现了支持多isp的snat网关
-4.  iptable-lbg-CHROUTE-lvs-v2.patch在阿里lvs-v2内核增加了iptables扩展，实现redirect nexthop功能,snat ip pool选择增加random算法
-5.  patches.lbg-lvs-v3在lvs-v3版本的基础上增加rps_framework，模拟万兆网卡flow director，以支持千兆网卡，完整的代码 https://github.com/jlijian3/LVS。
+3.  patches.lbg-lvs-v2/snat-gateway-lvs-v2.patch在阿里lvs-v2的fullnat基础上实现了支持多isp的snat网关
+5.  patches.lbg-lvs-v3/lvs-v3-rps.patch在lvs-v3版本的基础上增加rps_framework，模拟万兆网卡flow director，以支持千兆网卡，因为lvs-v3需要fdir来支持并行化，完整的代码 https://github.com/jlijian3/LVS。
 
 #####lvs-snat网关特性
 1. 支持源ip、目的ip、出口网卡、下一跳网关匹配，规则优先级匹配按照网络地址掩码位数由大到小
@@ -123,42 +122,5 @@
 	# --persitent表示ip选择算法是hash(sip)，就是一个内网ip固定一个出口ip
 	
 	#同样，内网机器默认网关指向iptables所在机器的内网ip
-
-###使用iptable_lbg CHROUTE
-我们在多isp下有各种变态的选路需求，因此开发了iptable lbg扩展，实现网关重定向，内核统一使用lvs-v2
-###
-	git clone git@github.com:alibaba/LVS.git
-	cd LVS
-	git checkout lvs_v2
-	patch -p1 < iptable-lbg-CHROUTE-lvs-v2.patch
-
-	#如果不想打补丁直接使用我们的完整代码
-	git clone https://github.com/jlijian3/LVS.git
-    
-###编译内核
-	make -j16
-	make modules_install
-	make install
-	init 6
-	
-###安装iptables
-	git clone https://github.com/jlijian3/lvs-snat.git
-	cd lvs-snat/iptables-1.4.7-lbg
-	./configure
-	make
-	make install
-	cp iptables_init_script /etc/init.d/iptables
-	service iptables start
-	#查看iptable_lbg,ipt_CHROUTE模块是否加载
-	lsmod|grep ipt
-	
-
-###iptables网关重定向
-比如有些业务要求电信走联通，有的要求电信走移动，这样我们不需要修改静态路由和策略路由，加几条规则即可
-###
-	#按照正常的路由，报文的nexthop是1.1.2.1，但是我们修改为1.1.3.1
-	iptables -t lbg -A FORWARD -s 192.168.100.0/24 -o eth1 -j CHROUTE --gw 1.1.3.1 --old-gw 1.1.2.1
-
-
 
 
