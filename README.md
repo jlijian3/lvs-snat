@@ -40,7 +40,7 @@
 
 ###安装keepalived ipvsadm
 	cd LVS/tools/keepalived
-	./configure --with-kernel-dir="/lib/modules/`uname -r`/build"
+	./configure --with-kernel-dir="/lib/modules/`uname -r`/build" --prefix=/usr/ --sysconfdir=/etc/
 	make
 	make install
 	cd ../ipvsadm
