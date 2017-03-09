@@ -8,7 +8,9 @@
     b) 基于lvs-v2开发的SNAT网关，类似iptables SNAT功能，性能非常好，性能相对iptables提升80%以上
     
 3.  patches.lbg-lvs-v2/snat-gateway-lvs-v2.patch在阿里lvs-v2的fullnat基础上实现了支持多isp的snat网关
-5.  patches.lbg-lvs-v3/lvs-v3-rps.patch在lvs-v3版本的基础上增加rps_framework，模拟万兆网卡flow director，以支持千兆网卡，因为lvs-v3需要fdir来支持并行化，完整的代码 https://github.com/jlijian3/LVS。
+4.  patches.lbg-lvs-v3/lvs-v3-rps.patch在lvs-v3版本的基础上增加rps_framework，模拟万兆网卡flow director，以支持千兆网卡，因为lvs-v3需要fdir来支持并行化，完整的代码 https://github.com/jlijian3/LVS。
+5.  lvs-snat已经移植到lvs-dpdk，见https://github.com/lvsgate/lvs-dpdk
+
 
 #####lvs-snat网关特性
 1. 支持源ip、目的ip、出口网卡、下一跳网关匹配，规则优先级匹配按照网络地址掩码位数由大到小
