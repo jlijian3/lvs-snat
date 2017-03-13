@@ -1,0 +1,207 @@
+diff --git a/lvs-kernel/redhat-kernel-source/linux-2.6.32/include/net/ip_vs.h b/lvs-kernel/redhat-kernel-source/linux-2.6.32/include/net/ip_vs.h
+index 038e7e7..42cd861 100644
+--- a/lvs-kernel/redhat-kernel-source/linux-2.6.32/include/net/ip_vs.h
++++ b/lvs-kernel/redhat-kernel-source/linux-2.6.32/include/net/ip_vs.h
+@@ -885,6 +885,9 @@ enum {
+ 	NONE_SYNPROXY_ACK_STORM,
+ 	RT_DEV_MAC_RESTORE,
+ 	RT_DEV_MAC_FLUSH,
++	FULLNAT_ADD_TOA_FAIL_BADOPT,
++	FULLNAT_ADD_TOA_FAIL_DELOPT,
++	FULLNAT_ADD_TOA_FAIL_NODELOPT,
+ 	IP_VS_EXT_STAT_LAST
+ };
+ 
+@@ -1147,6 +1150,7 @@ extern int sysctl_ip_vs_nat_icmp_send;
+ extern struct ip_vs_stats *ip_vs_stats;
+ extern const struct ctl_path net_vs_ctl_path[];
+ extern int sysctl_ip_vs_timestamp_remove_entry;
++extern int sysctl_ip_vs_filter_opts;
+ extern int sysctl_ip_vs_mss_adjust_entry;
+ extern int sysctl_ip_vs_conn_reused_entry;
+ extern int sysctl_ip_vs_toa_entry;
+diff --git a/lvs-kernel/redhat-kernel-source/linux-2.6.32/net/netfilter/ipvs/ip_vs_ctl.c b/lvs-kernel/redhat-kernel-source/linux-2.6.32/net/netfilter/ipvs/ip_vs_ctl.c
+index f4cbeba..b4ac123 100644
+--- a/lvs-kernel/redhat-kernel-source/linux-2.6.32/net/netfilter/ipvs/ip_vs_ctl.c
++++ b/lvs-kernel/redhat-kernel-source/linux-2.6.32/net/netfilter/ipvs/ip_vs_ctl.c
+@@ -111,6 +111,7 @@ int sysctl_ip_vs_rt_dev_mac_flush_interval = 60 * HZ;
+  * sysctl for FULLNAT
+  */
+ int sysctl_ip_vs_timestamp_remove_entry = 1;
++int sysctl_ip_vs_filter_opts = 1;
+ int sysctl_ip_vs_mss_adjust_entry = 1;
+ int sysctl_ip_vs_conn_reused_entry = 1;
+ int sysctl_ip_vs_toa_entry = 1;
+@@ -3583,11 +3584,21 @@ static struct ctl_table vs_vars[] = {
+ 	 },
+ 	{
+ 	 .procname = "rt_dev_mac_flush_interval",
+-	 .data = &sysctl_ip_vs_rt_dev_mac_flush_interval,
++	 .data = &sysctl_ip_vs_rt_dev_mac_flush_interval, 
+ 	 .maxlen = sizeof(int),
+ 	 .mode = 0644,
+ 	 .proc_handler = proc_dointvec_ms_jiffies,
+ 	 },
++	{
++	 .procname = "filter_tcp_opts",
++	 .data = &sysctl_ip_vs_filter_opts,
++	 .maxlen = sizeof(int),
++	 .mode = 0644,
++	 .proc_handler = &proc_dointvec_minmax,
++	 .extra1 = &ip_vs_entry_min,
++	 .extra2 = &ip_vs_entry_max,
++	 .strategy = &sysctl_intvec,
++	 },
+ 	{.ctl_name = 0}
+ };
+ 
+@@ -3977,6 +3988,9 @@ static struct ip_vs_estats_entry ext_stats[] = {
+ 	IP_VS_ESTATS_ITEM("none_synproxy_ackstorm", NONE_SYNPROXY_ACK_STORM),
+ 	IP_VS_ESTATS_ITEM("rt_dev_mac_restore", RT_DEV_MAC_RESTORE),
+ 	IP_VS_ESTATS_ITEM("rt_dev_mac_flush", RT_DEV_MAC_FLUSH),
++	IP_VS_ESTATS_ITEM("fullnat_add_toa_fail_bad_opt", FULLNAT_ADD_TOA_FAIL_BADOPT),
++	IP_VS_ESTATS_ITEM("fullnat_add_toa_fail_del_opt",  FULLNAT_ADD_TOA_FAIL_DELOPT),
++	IP_VS_ESTATS_ITEM("fullnat_add_toa_fail_nodel_opt",  FULLNAT_ADD_TOA_FAIL_NODELOPT),
+ 	IP_VS_ESTATS_LAST
+ };
+ 
+diff --git a/lvs-kernel/redhat-kernel-source/linux-2.6.32/net/netfilter/ipvs/ip_vs_proto_tcp.c b/lvs-kernel/redhat-kernel-source/linux-2.6.32/net/netfilter/ipvs/ip_vs_proto_tcp.c
+index 04cbaef..12be853 100644
+--- a/lvs-kernel/redhat-kernel-source/linux-2.6.32/net/netfilter/ipvs/ip_vs_proto_tcp.c
++++ b/lvs-kernel/redhat-kernel-source/linux-2.6.32/net/netfilter/ipvs/ip_vs_proto_tcp.c
+@@ -661,6 +661,118 @@ static void tcp_opt_remove_timestamp(struct tcphdr *tcph, int hwcsum)
+ 	}
+ }
+ 
++struct tcp_opts {
++	int len;
++	unsigned char data[64];
++};
++
++static int
++tcp_parse_support_opts(struct tcphdr *th, struct tcp_opts *opts)
++{
++	int filter = 0;
++	unsigned char *ptr;
++
++	int length = (th->doff * 4) - sizeof(struct tcphdr);
++	memset(opts, '\0', sizeof(struct tcp_opts));
++	ptr = (unsigned char *)(th + 1);
++
++	while (length > 0) {
++		int opcode = *ptr++;
++		int opsize;
++
++		switch (opcode) {
++		case TCPOPT_EOL:
++			goto _exit;
++		case TCPOPT_NOP:
++			length--;
++			continue;
++		default:
++			opsize = *ptr++;
++			if (opsize < 2 || opsize > length)	/* "silly options" */
++				return -1;
++
++			switch (opcode) {
++			case TCPOPT_MSS:
++			case TCPOPT_WINDOW:
++			case TCPOPT_TIMESTAMP:
++			case TCPOPT_SACK_PERM:
++			//case TCPOPT_SACK:
++				memcpy(opts->data + opts->len, ptr - 2, opsize);
++				opts->len += opsize;
++				break;
++			default:
++				filter = 1;
++				break;
++			}
++			ptr += opsize - 2;
++			length -= opsize;
++		}
++	}
++_exit:
++	return filter;
++}
++
++static int
++tcp_del_unsupport_opts(struct sk_buff *skb, struct tcphdr **tcph)
++{
++	unsigned char *ptr, *p, *q;
++	int length, diff;
++	int nop_len = 0, filter;
++	struct tcp_opts opts;
++
++	filter = tcp_parse_support_opts(*tcph, &opts);
++	if (unlikely(filter < 0)) {
++		IP_VS_INC_ESTATS(ip_vs_esmib, FULLNAT_ADD_TOA_FAIL_BADOPT);
++		return 0;
++	}
++
++	if (likely((opts.len % 4) > 0)) {
++		nop_len = 4 - opts.len % 4;
++	}
++	/* the maximum length of TCP head is 60 bytes, so only 40 bytes for options */
++	if (unlikely(40 - (opts.len + nop_len) < sizeof(struct ip_vs_tcpo_addr))) {
++		if (unlikely(filter == 0))
++			IP_VS_INC_ESTATS(ip_vs_esmib, FULLNAT_ADD_TOA_FAIL_NODELOPT);
++		else
++			IP_VS_INC_ESTATS(ip_vs_esmib, FULLNAT_ADD_TOA_FAIL_DELOPT);
++		return 0;
++	}
++
++	length = ((*tcph)->doff << 2) - sizeof(struct tcphdr);
++	diff = length - (opts.len + nop_len);
++	if (likely((diff > 0) && (diff % 4 == 0))) {
++		ptr = (unsigned char *)((*tcph) + 1);  /* tcp opt start pointer */
++		q = ptr + length; /* tcp body start pointer */
++		memcpy(ptr, opts.data, opts.len);
++		ptr += opts.len;
++		if (likely(nop_len > 0)) { /* pad TCPOPT_NOP if needed */
++			memset(ptr, TCPOPT_NOP, nop_len);
++			ptr += nop_len;
++		}
++
++		p = ptr; /* new tcp body start pointer */
++		while (q <= skb_tail_pointer(skb) - 1) {
++			*p = *q;
++			p++;
++			q++;
++		}
++
++	      /* move tail to new postion */
++		skb->tail -= diff;
++		/* reset tcp header length */
++		(*tcph)->doff -= diff >> 2;
++		/* reset ip header totoal length */
++		ip_hdr(skb)->tot_len = htons(ntohs(ip_hdr(skb)->tot_len) - diff);
++		/* reset skb length */
++		skb->len -= diff;
++
++		return 1;
++	}
++
++	return 0;
++}
++
++
+ extern u32 crc32c_sec_tcp_seq_number(__be32 saddr, __be32 daddr,
+ 		__be16 sport, __be16 dport);
+ /*
+@@ -1015,8 +1127,14 @@ static int tcp_opt_add_toa(struct ip_vs_conn *cp,
+ 
+ 	/* the maximum length of TCP head is 60 bytes, so only 40 bytes for options */
+ 	if ((60 - ((*tcph)->doff << 2)) < sizeof(struct ip_vs_tcpo_addr)) {
+-		IP_VS_INC_ESTATS(ip_vs_esmib, FULLNAT_ADD_TOA_HEAD_FULL);
+-		return 1;
++		if (likely(sysctl_ip_vs_filter_opts == 1)) {
++			if (!tcp_del_unsupport_opts(skb, tcph)) {
++				return 1;
++			}
++		} else {
++			IP_VS_INC_ESTATS(ip_vs_esmib, FULLNAT_ADD_TOA_HEAD_FULL);
++			return 1;
++		}
+ 	}
+ 
+ 	/* expand skb if needed */
