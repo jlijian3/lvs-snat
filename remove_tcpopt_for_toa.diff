@@ -34,14 +34,6 @@ index f4cbeba..b4ac123 100644
  int sysctl_ip_vs_toa_entry = 1;
 @@ -3583,11 +3584,21 @@ static struct ctl_table vs_vars[] = {
  	 },
- 	{
- 	 .procname = "rt_dev_mac_flush_interval",
--	 .data = &sysctl_ip_vs_rt_dev_mac_flush_interval,
-+	 .data = &sysctl_ip_vs_rt_dev_mac_flush_interval, 
- 	 .maxlen = sizeof(int),
- 	 .mode = 0644,
- 	 .proc_handler = proc_dointvec_ms_jiffies,
- 	 },
 +	{
 +	 .procname = "filter_tcp_opts",
 +	 .data = &sysctl_ip_vs_filter_opts,
