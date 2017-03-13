@@ -1,5 +1,6 @@
 ##lvs-snat
 #####版本说明
+0.  lvs-snat已经移植到lvs-dpdk，见https://github.com/lvsgate/lvs-dpdk
 1.  patches.lbg-lvs-v2是我厂负载均衡项目目前使用的版本，针对alibaba lvs-v2的补丁。完整的代码在 https://github.com/jlijian3/LVS/tree/lvs_v2 ，阿里的代码 https://github.com/alibaba/LVS/tree/lvs_v2
 2.  我们的入口负载均衡使用lvs-v2，出口网关有两种实现方案
 
@@ -9,7 +10,7 @@
     
 3.  patches.lbg-lvs-v2/snat-gateway-lvs-v2.patch在阿里lvs-v2的fullnat基础上实现了支持多isp的snat网关
 4.  patches.lbg-lvs-v3/lvs-v3-rps.patch在lvs-v3版本的基础上增加rps_framework，模拟万兆网卡flow director，以支持千兆网卡，因为lvs-v3需要fdir来支持并行化，完整的代码 https://github.com/jlijian3/LVS。
-5.  lvs-snat已经移植到lvs-dpdk，见https://github.com/lvsgate/lvs-dpdk
+
 
 
 #####lvs-snat网关特性
